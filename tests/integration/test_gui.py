@@ -1,6 +1,7 @@
 """Run explicitly with CERTIFICATE_ANALYZER_GUI_TEST=1 and a working display."""
 
 import os
+
 import pytest
 
 pytestmark = pytest.mark.skipif(
@@ -13,14 +14,15 @@ def test_desktop_workflows(tmp_path, monkeypatch, certificate_file, mchd_file):
     monkeypatch.setenv("CERTIFICATE_ANALYZER_HOME", str(tmp_path / "settings"))
     monkeypatch.setenv("MPLCONFIGDIR", str(tmp_path / "matplotlib"))
     from tkinter import Tk, messagebox
-    from certificate_analyzer.infrastructure.config.settings import Settings
+
     from certificate_analyzer.infrastructure.config.config_loader import save_settings
+    from certificate_analyzer.infrastructure.config.settings import Settings
+    from certificate_analyzer.infrastructure.mchd.xml_parser import MCHDParser
     from certificate_analyzer.presentation.gui.main_window import CertificateAnalyzerApp
     from certificate_analyzer.presentation.gui.views.mchd_view import (
-        MCHDTableWindow,
         AuthoritiesViewWindow,
+        MCHDTableWindow,
     )
-    from certificate_analyzer.infrastructure.mchd.xml_parser import MCHDParser
 
     certificate_file()
     document = mchd_file()
@@ -72,7 +74,7 @@ def test_desktop_workflows(tmp_path, monkeypatch, certificate_file, mchd_file):
                     yield child
                 yield from buttons(child)
 
-        list(buttons(app.open_windows["folder_settings"]))[0].invoke()
+        next(iter(buttons(app.open_windows["folder_settings"]))).invoke()
         app.show_notification_settings()
         app.show_notification_history()
         app.show_normative()

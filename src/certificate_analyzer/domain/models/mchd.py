@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional
+
 from certificate_analyzer.domain.enums.mchd_status import MchdStatus
 
 
@@ -11,7 +11,7 @@ class MchdDocument:
     """Сущность машиночитаемой доверенности (МЧД)."""
 
     unified_number: str
-    internal_number: Optional[str]
+    internal_number: str | None
     principal_inn: str
     principal_name: str
     representative_inn: str
@@ -21,4 +21,4 @@ class MchdDocument:
     valid_to: datetime
     status: MchdStatus = MchdStatus.ACTIVE
     # Полномочия должны храниться в нормализованной таблице БД
-    authority_codes: List[str] = field(default_factory=list)
+    authority_codes: list[str] = field(default_factory=list)

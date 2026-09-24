@@ -1,7 +1,6 @@
 """Модуль для загрузки телефонного справочника из TXT файлов."""
 
 import re
-from typing import List
 
 from certificate_analyzer.domain.models.employee import Employee
 
@@ -9,7 +8,7 @@ from certificate_analyzer.domain.models.employee import Employee
 class TxtPhonebookLoader:
     """Загрузчик телефонного справочника из формата TXT."""
 
-    def load(self, file_path: str) -> List[Employee]:
+    def load(self, file_path: str) -> list[Employee]:
         """Загружает данные сотрудников из TXT файла.
 
         Args:
@@ -21,7 +20,7 @@ class TxtPhonebookLoader:
         Raises:
             Exception: При ошибке чтения файла.
         """
-        employees: List[Employee] = []
+        employees: list[Employee] = []
 
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()

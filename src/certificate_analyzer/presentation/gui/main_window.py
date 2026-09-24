@@ -1,5 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
+
+import matplotlib
+
 from certificate_analyzer.presentation.gui.styles import (
     ACCENT_COLOR,
     BG_COLOR,
@@ -10,50 +13,37 @@ from certificate_analyzer.presentation.gui.styles import (
     CARD_TITLE_COLOR,
     CARD_VALUE_COLOR,
     EXPIRED_COLOR,
-    EXPIRED_TEXT,
-    GRAPH_EXPIRED,
-    GRAPH_NORMAL,
-    GRAPH_WARNING,
     HEADER_COLOR,
     MCHD_COLOR,
     NORMAL_COLOR,
-    NORMAL_TEXT,
     SIDEBAR_COLOR,
     SIDEBAR_TEXT_COLOR,
     TEXT_COLOR,
-    WARNING_COLOR,
-    WARNING_TEXT,
     UI_FONT,
-    MONO_FONT,
+    WARNING_COLOR,
 )
-import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from tkcalendar import Calendar
-from certificate_analyzer.application.services.certificate_service import (
-    CertificateAnalyzerCore,
-)
+
+from certificate_analyzer.bootstrap import create_application
 from certificate_analyzer.infrastructure.mchd.xml_parser import MCHDParser
-from certificate_analyzer.presentation.gui.widgets.toast import ToastNotification
-from certificate_analyzer.presentation.gui.views.history_view import NotificationHistory
-from certificate_analyzer.presentation.gui.views.normative_view import NormativeWindow
-
-
-from certificate_analyzer.presentation.gui.controllers.settings_controller import (
-    SettingsController,
-)
 from certificate_analyzer.presentation.gui.controllers.certificate_controller import (
     CertificateController,
 )
 from certificate_analyzer.presentation.gui.controllers.mchd_controller import (
     MchdController,
 )
+from certificate_analyzer.presentation.gui.controllers.settings_controller import (
+    SettingsController,
+)
 from certificate_analyzer.presentation.gui.presenters.certificate_presenter import (
     CertificatePresenter,
 )
 from certificate_analyzer.presentation.gui.views.certificate_view import CertificateView
+from certificate_analyzer.presentation.gui.views.history_view import NotificationHistory
+from certificate_analyzer.presentation.gui.views.normative_view import NormativeWindow
+from certificate_analyzer.presentation.gui.widgets.toast import ToastNotification
 
 
 class CertificateAnalyzerApp(
@@ -68,7 +58,12 @@ class CertificateAnalyzerApp(
         self.current_display_path = ""
         self.recent_folders = []
         self.setup_styles()
-        self.core = CertificateAnalyzerCore()
+        app = create_application()
+        self.core = app.certificates
+        self.core.settings = app.settings
+        self.core.loaded_files = []
+        self.core.errors = {}
+        self.core.certificates = []
         self.certificate_presenter = CertificatePresenter(view=self, model=self.core)
         self.default_folders = dict(self.core.settings.folders)
         self.cert_data_cache = []
@@ -90,7 +85,8 @@ class CertificateAnalyzerApp(
         self.setup_push_notifications()
         self.root.bind("<Configure>", self.on_window_resize)
         self.tree.bind("<Double-1>", self.on_item_double_click)
-        self.cal.bind("<<CalendarMonthChanged>>", self.on_month_change)
+        if self.cal:
+            self.cal.bind("<<CalendarMonthChanged>>", self.on_month_change)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
     def close(self):
@@ -142,6 +138,32 @@ class CertificateAnalyzerApp(
             "Accent.TButton",
             background=[("active", BUTTON_HOVER), ("pressed", BUTTON_HOVER)],
             foreground=[("active", "white")],
+        )
+        style.configure(
+            "Danger.TButton",
+            background="#D9534F",
+            foreground="white",
+            font=(UI_FONT, 9, "bold"),
+            borderwidth=0,
+            padding=8,
+        )
+        style.map(
+            "Danger.TButton",
+            background=[("active", "#c9302c"), ("pressed", "#c9302c")],
+            foreground=[("active", "white")],
+        )
+        style.configure(
+            "Secondary.TButton",
+            background="#e0e0e0",
+            foreground="black",
+            font=(UI_FONT, 9),
+            borderwidth=0,
+            padding=8,
+        )
+        style.map(
+            "Secondary.TButton",
+            background=[("active", "#d5d5d5"), ("pressed", "#d5d5d5")],
+            foreground=[("active", "black")],
         )
         style.configure(
             "Sidebar.TButton",
@@ -246,428 +268,196 @@ class CertificateAnalyzerApp(
         main_frame = ttk.Frame(self.root, padding=10)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        sidebar_frame = ttk.Frame(main_frame, width=260, style="Sidebar.TFrame")
+        # Sidebar
+        sidebar_frame = ttk.Frame(main_frame, width=220, style="Sidebar.TFrame")
         sidebar_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
         sidebar_frame.pack_propagate(False)
 
         logo_frame = ttk.Frame(sidebar_frame, style="Sidebar.TFrame")
         logo_frame.pack(fill=tk.X, pady=(10, 20))
+        ttk.Label(logo_frame, text="🔐", font=(UI_FONT, 28), foreground="white", background=SIDEBAR_COLOR).pack(pady=(10, 0))
+        ttk.Label(logo_frame, text="Анализатор", font=(UI_FONT, 14, "bold"), foreground="white", background=SIDEBAR_COLOR).pack()
 
-        ttk.Label(
-            logo_frame,
-            text="🔐",
-            font=(UI_FONT, 28),
-            foreground="white",
-            background=SIDEBAR_COLOR,
-        ).pack(pady=(10, 0))
-        ttk.Label(
-            logo_frame,
-            text="Анализатор",
-            font=(UI_FONT, 14, "bold"),
-            foreground="white",
-            background=SIDEBAR_COLOR,
-        ).pack()
-        ttk.Label(
-            logo_frame,
-            text="Сертификатов и МЧД",
-            font=(UI_FONT, 9),
-            foreground=SIDEBAR_TEXT_COLOR,
-            background=SIDEBAR_COLOR,
-        ).pack()
-
-        nav_buttons = [
-            ("📁 Сотрудники", lambda: self.switch_folder("📁 Сотрудники")),
-            ("📁 Руководство", lambda: self.switch_folder("📁 Руководство")),
-            ("📁 МЧД", self.scan_mchd_folder),
-            ("📤 Экспорт", self.export_menu),
-            ("⚙️ Служба", self.service_menu),
-            ("📞 Загрузить справочник", self.load_phonebook),
+        # Navigation
+        from certificate_analyzer.presentation.gui.styles import SECONDARY_TEXT_COLOR
+        ttk.Label(sidebar_frame, text="ОСНОВНОЕ", font=(UI_FONT, 8, "bold"), foreground=SECONDARY_TEXT_COLOR, background=SIDEBAR_COLOR).pack(anchor=tk.W, padx=15, pady=(10, 5))
+        main_nav = [
+            ("📊 Обзор", lambda: None),
+            ("🪪 Сертификаты", lambda: self.switch_folder("📁 Сотрудники")),
+            ("📑 МЧД", self.scan_mchd_folder),
+            ("👥 Сотрудники", lambda: self.switch_folder("📁 Руководство")),
+            ("📈 Отчёты", self.export_menu)
         ]
+        for text, cmd in main_nav:
+            btn = ttk.Button(sidebar_frame, text=text, command=cmd, style="Sidebar.TButton")
+            btn.pack(fill=tk.X, padx=10, pady=2, ipady=4)
 
-        for text, command in nav_buttons:
-            btn = ttk.Button(
-                sidebar_frame, text=text, command=command, style="Sidebar.TButton"
-            )
-            btn.pack(fill=tk.X, padx=10, pady=3, ipady=5)
-            self.create_tooltip(btn, text)
-
-        sep = ttk.Separator(sidebar_frame, orient="horizontal")
-        sep.pack(fill=tk.X, padx=10, pady=15)
-
-        bottom_buttons = [
-            ("📋 История уведомлений", self.show_notification_history),
-            ("🔔 Push-уведомления", self.show_notification_settings),
+        ttk.Label(sidebar_frame, text="СИСТЕМА", font=(UI_FONT, 8, "bold"), foreground=SECONDARY_TEXT_COLOR, background=SIDEBAR_COLOR).pack(anchor=tk.W, padx=15, pady=(20, 5))
+        sys_nav = [
+            ("🔔 Уведомления", self.show_notification_settings),
+            ("⚙️ Настройки", self.show_folder_settings)
+        ]
+        for text, cmd in sys_nav:
+            btn = ttk.Button(sidebar_frame, text=text, command=cmd, style="Sidebar.TButton")
+            btn.pack(fill=tk.X, padx=10, pady=2, ipady=4)
+        
+        ttk.Frame(sidebar_frame, style="Sidebar.TFrame").pack(fill=tk.BOTH, expand=True) # spacer
+        
+        bottom_nav = [
             ("📚 Нормативка", self.show_normative),
             ("ℹ️ О программе", self.show_about),
         ]
+        for text, cmd in bottom_nav:
+            btn = ttk.Button(sidebar_frame, text=text, command=cmd, style="Sidebar.TButton")
+            btn.pack(fill=tk.X, padx=10, pady=2, ipady=4)
+        
+        # Content Area
+        content_frame = ttk.Frame(main_frame)
+        content_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        for text, command in bottom_buttons:
-            btn = ttk.Button(
-                sidebar_frame, text=text, command=command, style="Sidebar.TButton"
-            )
-            btn.pack(fill=tk.X, padx=10, pady=3, ipady=5)
-            self.create_tooltip(btn, text)
-
-        top_frame = ttk.Frame(main_frame)
-        top_frame.pack(fill=tk.X, pady=(0, 10))
-
-        nav_frame = ttk.Frame(top_frame)
-        nav_frame.pack(fill=tk.X, pady=(0, 5))
-
-        back_btn = ttk.Button(
-            nav_frame,
-            text="◀ Назад",
-            command=self.folder_back,
-            style="Accent.TButton",
-            width=10,
-        )
-        back_btn.pack(side=tk.LEFT, padx=(0, 5))
-        self.create_tooltip(back_btn, "Вернуться к предыдущей папке")
-
+        # Top Bar
+        top_bar = ttk.Frame(content_frame)
+        top_bar.pack(fill=tk.X, pady=(0, 15))
+        ttk.Label(top_bar, text="Сертификаты", font=(UI_FONT, 14, "bold")).pack(side=tk.LEFT)
+        
         self.folder_path = tk.StringVar()
-        folder_entry = ttk.Entry(
-            nav_frame, textvariable=self.folder_path, font=(UI_FONT, 10)
-        )
-        folder_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-
-        select_btn = ttk.Button(
-            nav_frame,
-            text="📂 Выбрать папку",
-            command=self.select_folder,
-            style="Accent.TButton",
-        )
-        select_btn.pack(side=tk.RIGHT)
-        self.create_tooltip(select_btn, "Выбрать другую папку с сертификатами")
-
-        settings_btn = ttk.Button(
-            nav_frame,
-            text="⚙️",
-            command=self.show_folder_settings,
-            style="Accent.TButton",
-            width=3,
-        )
-        settings_btn.pack(side=tk.RIGHT, padx=(0, 5))
-        self.create_tooltip(settings_btn, "Настройка путей к папкам")
-
-        cards_frame = ttk.Frame(main_frame)
+        ttk.Entry(top_bar, textvariable=self.folder_path, width=40).pack(side=tk.LEFT, padx=(20, 10))
+        ttk.Button(top_bar, text="Выбрать", command=self.select_folder, style="Accent.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(top_bar, text="Обновить", command=self.refresh_all, style="Accent.TButton").pack(side=tk.LEFT, padx=5)
+        
+        # Stats Cards
+        from certificate_analyzer.presentation.gui.widgets.stat_card import StatCard
+        cards_frame = ttk.Frame(content_frame)
         cards_frame.pack(fill=tk.X, pady=(0, 15))
+        self.card_total = StatCard(cards_frame, "Всего", "0")
+        self.card_total.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 10))
+        self.card_normal = StatCard(cards_frame, "Активны", "0", NORMAL_COLOR)
+        self.card_normal.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 10))
+        self.card_warning = StatCard(cards_frame, "Истекают", "0", WARNING_COLOR)
+        self.card_warning.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 10))
+        self.card_expired = StatCard(cards_frame, "Просрочены", "0", EXPIRED_COLOR)
+        self.card_expired.pack(side=tk.LEFT, expand=True, fill=tk.X)
 
-        self.card_total = self.create_card(cards_frame, "Всего записей", "0")
-        self.card_normal = self.create_card(cards_frame, "Активные", "0", GRAPH_NORMAL)
-        self.card_warning = self.create_card(
-            cards_frame, "Истекают", "0", GRAPH_WARNING
-        )
-        self.card_expired = self.create_card(
-            cards_frame, "Просрочены", "0", GRAPH_EXPIRED
-        )
-
-        content_inner_frame = ttk.Frame(main_frame)
-        content_inner_frame.pack(fill=tk.BOTH, expand=True)
-
-        left_panel = ttk.Frame(content_inner_frame)
-        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-
-        files_frame = ttk.LabelFrame(left_panel, text=" Найденные файлы ", padding=10)
-        files_frame.pack(fill=tk.BOTH, pady=(0, 10))
-
-        list_frame = ttk.Frame(files_frame)
-        list_frame.pack(fill=tk.BOTH, expand=True)
-
-        cert_list_frame = ttk.LabelFrame(list_frame, text="Сертификаты", padding=5)
-        cert_list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
-
-        self.listbox_files = tk.Listbox(
-            cert_list_frame,
-            height=6,
-            selectmode=tk.EXTENDED,
-            font=(MONO_FONT, 9),
-            bg="white",
-            fg=TEXT_COLOR,
-            selectbackground=BUTTON_COLOR,
-            selectforeground="white",
-        )
-        self.listbox_files.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
-        scroll_files = ttk.Scrollbar(
-            cert_list_frame, orient=tk.VERTICAL, command=self.listbox_files.yview
-        )
-        scroll_files.pack(side=tk.RIGHT, fill=tk.Y)
-        self.listbox_files.configure(yscrollcommand=scroll_files.set)
-
-        mchd_list_frame = ttk.LabelFrame(list_frame, text="МЧД", padding=5)
-        mchd_list_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
-
-        self.listbox_mchd = tk.Listbox(
-            mchd_list_frame,
-            height=6,
-            selectmode=tk.EXTENDED,
-            font=(MONO_FONT, 9),
-            bg="white",
-            fg=TEXT_COLOR,
-            selectbackground=BUTTON_COLOR,
-            selectforeground="white",
-        )
-        self.listbox_mchd.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
-        scroll_mchd = ttk.Scrollbar(
-            mchd_list_frame, orient=tk.VERTICAL, command=self.listbox_mchd.yview
-        )
-        scroll_mchd.pack(side=tk.RIGHT, fill=tk.Y)
-        self.listbox_mchd.configure(yscrollcommand=scroll_mchd.set)
-
-        results_frame = ttk.LabelFrame(
-            left_panel, text=" Результаты анализа сертификатов ", padding=10
-        )
-        results_frame.pack(fill=tk.BOTH, expand=True)
-
-        action_panel = ttk.Frame(results_frame)
-        action_panel.pack(fill=tk.X, pady=(0, 10))
-
-        search_frame = ttk.Frame(action_panel)
-        search_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        ttk.Label(search_frame, text="🔍 Поиск:", font=(UI_FONT, 10)).pack(
-            side=tk.LEFT
-        )
+        # Filters
+        filter_bar = ttk.Frame(content_frame)
+        filter_bar.pack(fill=tk.X, pady=(0, 10))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", self.on_search)
-        search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=25)
-        search_entry.pack(side=tk.LEFT, padx=(5, 10))
+        ttk.Entry(filter_bar, textvariable=self.search_var, width=30).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(filter_bar, text="Статус ▼", style="TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(filter_bar, text="Срок ▼", command=self.show_date_filter, style="TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(filter_bar, text="Подразделение ▼", style="TButton").pack(side=tk.LEFT, padx=5)
 
-        filter_btn = ttk.Button(
-            search_frame,
-            text="📅 Фильтр по дате",
-            command=self.show_date_filter,
-            style="Accent.TButton",
-            width=14,
+        ttk.Button(filter_bar, text="🗑 Удалить", command=self.delete_selected, style="Danger.TButton").pack(side=tk.RIGHT)
+
+        # Table
+        from certificate_analyzer.presentation.gui.widgets.certificate_table import (
+            CertificateTable,
         )
-        filter_btn.pack(side=tk.LEFT, padx=5)
-        self.create_tooltip(filter_btn, "Фильтр сертификатов по дате окончания")
+        self.table = CertificateTable(content_frame)
+        self.table.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        self.tree = self.table.tree
+        self.columns = self.table.columns
 
-        delete_btn = ttk.Button(
-            action_panel,
-            text="🗑 Удалить",
-            command=self.delete_selected,
-            style="Accent.TButton",
-            width=10,
+        # Details Panel
+        from certificate_analyzer.presentation.gui.widgets.certificate_details import (
+            CertificateDetails,
         )
-        delete_btn.pack(side=tk.RIGHT, padx=(5, 0))
-        self.create_tooltip(delete_btn, "Удалить выбранные файлы с диска")
+        self.details_panel = CertificateDetails(content_frame)
+        self.details_panel.pack(fill=tk.X)
+        self.table.set_on_select_callback(self._on_table_select)
 
-        refresh_btn = ttk.Button(
-            action_panel,
-            text="🔄 Обновить",
-            command=self.refresh_all,
-            style="Accent.TButton",
-            width=10,
-        )
-        refresh_btn.pack(side=tk.RIGHT, padx=(5, 0))
-        self.create_tooltip(refresh_btn, "Обновить список файлов и данные")
-
-        self.search_result_label = ttk.Label(
-            action_panel,
-            text="",
-            font=(UI_FONT, 9, "italic"),
-            foreground=ACCENT_COLOR,
-        )
-        self.search_result_label.pack(side=tk.RIGHT, padx=(10, 0))
-
-        self.current_folder_label = ttk.Label(
-            action_panel,
-            text=f"Текущая: {self.current_folder_key}",
-            font=(UI_FONT, 9, "italic"),
-            foreground=ACCENT_COLOR,
-        )
-        self.current_folder_label.pack(side=tk.RIGHT, padx=(10, 0))
-
-        tree_frame = ttk.Frame(results_frame)
-        tree_frame.pack(fill=tk.BOTH, expand=True)
-
-        self.columns = (
-            "Тип",
-            "Файл",
-            "С",
-            "По",
-            "ФИО",
-            "Номер",
-            "Email",
-            "Кабинет",
-            "Подразделение",
-            "Телефон",
-            "Статус",
-        )
-
-        self.tree = ttk.Treeview(
-            tree_frame, columns=self.columns, show="headings", height=15
-        )
-
-        col_widths = [50, 150, 85, 85, 160, 110, 110, 85, 110, 120, 110]
-        for col, width in zip(self.columns, col_widths):
-            self.tree.heading(col, text=col, command=lambda c=col: self.sort_column(c))
-            self.tree.column(col, width=width, anchor=tk.W, stretch=True, minwidth=50)
-
-        scroll_y = ttk.Scrollbar(
-            tree_frame, orient=tk.VERTICAL, command=self.tree.yview
-        )
-        scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
-
-        scroll_x = ttk.Scrollbar(
-            tree_frame, orient=tk.HORIZONTAL, command=self.tree.xview
-        )
-        scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
-
-        self.tree.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
-        self.tree.pack(fill=tk.BOTH, expand=True)
-
-        self.tree.tag_configure(
-            "expired", background=EXPIRED_COLOR, foreground=EXPIRED_TEXT
-        )
-        self.tree.tag_configure(
-            "warning", background=WARNING_COLOR, foreground=WARNING_TEXT
-        )
-        self.tree.tag_configure(
-            "normal", background=NORMAL_COLOR, foreground=NORMAL_TEXT
-        )
-        self.tree.tag_configure("duplicate", background="#fff3cd", foreground="black")
-
-        right_panel = ttk.Frame(content_inner_frame, width=400)
-        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH)
-
-        calendar_frame = ttk.LabelFrame(
-            right_panel, text=" 📅 Календарь окончаний ", padding=10
-        )
-        calendar_frame.pack(fill=tk.BOTH, pady=(0, 10))
-
-        cal_controls_frame = ttk.Frame(calendar_frame)
-        cal_controls_frame.pack(fill=tk.X, pady=(0, 5))
-
-        today_btn = ttk.Button(
-            cal_controls_frame,
-            text="Сегодня",
-            command=self.show_today,
-            style="Accent.TButton",
-            width=8,
-        )
-        today_btn.pack(side=tk.LEFT, padx=(0, 5))
-        self.create_tooltip(today_btn, "Показать сегодняшнюю дату в календаре")
-
-        prev_btn = ttk.Button(
-            cal_controls_frame,
-            text="◀",
-            command=self.prev_month,
-            style="Accent.TButton",
-            width=3,
-        )
-        prev_btn.pack(side=tk.LEFT, padx=(0, 5))
-
-        next_btn = ttk.Button(
-            cal_controls_frame,
-            text="▶",
-            command=self.next_month,
-            style="Accent.TButton",
-            width=3,
-        )
-        next_btn.pack(side=tk.LEFT)
-
-        try:
-            self.cal = Calendar(
-                calendar_frame,
-                selectmode="day",
-                date_pattern="dd.mm.yyyy",
-                firstweekday="monday",
-                showweeknumbers=False,
-                weekendbackground="#f5f5f5",
-                weekendforeground="#666666",
-                othermonthbackground="#f9f9f9",
-                othermonthforeground="#cccccc",
-                bordercolor=CARD_BORDER_COLOR,
-                selectbackground=BUTTON_COLOR,
-                selectforeground="white",
-                background="white",
-                foreground=TEXT_COLOR,
-                font=(UI_FONT, 9),
-                headersbackground="#f0f0f0",
-                headersforeground=TEXT_COLOR,
-                normalbackground="white",
-                normalforeground=TEXT_COLOR,
-                disabledforeground="#cccccc",
-                locale="ru_RU",
-            )
-        except:
-            self.cal = Calendar(
-                calendar_frame,
-                selectmode="day",
-                date_pattern="dd.mm.yyyy",
-                firstweekday="monday",
-                showweeknumbers=False,
-                weekendbackground="#f5f5f5",
-                weekendforeground="#666666",
-                othermonthbackground="#f9f9f9",
-                othermonthforeground="#cccccc",
-                bordercolor=CARD_BORDER_COLOR,
-                selectbackground=BUTTON_COLOR,
-                selectforeground="white",
-                background="white",
-                foreground=TEXT_COLOR,
-                font=(UI_FONT, 9),
-                headersbackground="#f0f0f0",
-                headersforeground=TEXT_COLOR,
-                normalbackground="white",
-                normalforeground=TEXT_COLOR,
-                disabledforeground="#cccccc",
-            )
-
-        self.cal.pack(fill=tk.BOTH, expand=True)
-        self.cal.bind("<<CalendarSelected>>", self.on_date_select)
-
-        dashboard_frame = ttk.LabelFrame(
-            right_panel, text=" 📊 Статус документов ", padding=10
-        )
-        dashboard_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-
-        chart_options_frame = ttk.Frame(dashboard_frame)
-        chart_options_frame.pack(fill=tk.X, pady=(0, 5))
-
-        ttk.Label(chart_options_frame, text="Тип:").pack(side=tk.LEFT, padx=(0, 5))
-
-        self.chart_type_var = tk.StringVar(value="Круговая")
-        chart_types = [
-            "Круговая",
-            "Столбчатая",
-            "Линейная",
-            "С областями",
-            "Кольцевая",
-            "Точечная",
-            "Пузырьковая",
-            "Гистограмма с накоплением",
-        ]
-        chart_combo = ttk.Combobox(
-            chart_options_frame,
-            textvariable=self.chart_type_var,
-            values=chart_types,
-            state="readonly",
-            width=18,
-        )
-        chart_combo.pack(side=tk.LEFT, padx=5)
-        chart_combo.bind("<<ComboboxSelected>>", self.on_chart_type_change)
-
-        self.include_chart_var = tk.BooleanVar(value=True)
-        chart_check = ttk.Checkbutton(
-            chart_options_frame, text="Включать в PDF", variable=self.include_chart_var
-        )
-        chart_check.pack(side=tk.RIGHT)
-
-        self.figure_status = plt.Figure(figsize=(5, 3), dpi=80, facecolor="white")
-        self.ax_status = self.figure_status.add_subplot(111)
-        self.ax_status.set_facecolor("white")
-        self.canvas_status = FigureCanvasTkAgg(
-            self.figure_status, master=dashboard_frame
-        )
-        self.canvas_status.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        # Status Bar
+        status_bar = ttk.Frame(content_frame)
+        status_bar.pack(fill=tk.X, pady=(10, 0))
+        
+        self.progress_var = tk.DoubleVar()
+        self.progress_bar = ttk.Progressbar(status_bar, variable=self.progress_var, maximum=100)
+        
+        self.status_label = ttk.Label(status_bar, text="Готово", font=(UI_FONT, 9), foreground=SECONDARY_TEXT_COLOR)
+        self.status_label.pack(side=tk.LEFT)
+        self.search_result_label = ttk.Label(status_bar, text="", font=(UI_FONT, 9), foreground=SECONDARY_TEXT_COLOR)
+        self.search_result_label.pack(side=tk.RIGHT)
 
         self.sort_reverse = {col: False for col in self.columns}
         self.folder_history = []
+        
+        self.cal = None
+        self.figure_status = None
+        self.current_folder_label = tk.Label() # Dummy for compat
 
-        self.root.after(1000, self.update_calendar_colors)
+    def _on_table_select(self, values):
+        if not values:
+            self.details_panel.clear()
+            return
+        details = {
+            "Subject": values[0],
+            "Путь": values[1],
+            "Email": values[6] if len(values) > 6 else "",
+            "Телефон": values[5] if len(values) > 5 else "",
+        }
+        self.details_panel.update_details(details)
 
+    def display_certificates(self, data_list):
+        self.table.clear()
+        if not data_list:
+            self.table.insert_row(["Сертификаты не найдены"] * len(self.columns))
+            return
+        
+        for item in data_list:
+            status = item.get("status", "")
+            tags = ()
+            if "Просрочен" in status:
+                tags = ("expired",)
+            elif "Истекает" in status:
+                tags = ("warning",)
+            elif status:
+                tags = ("normal",)
+
+            row = (
+                item.get("type", "—"),
+                item.get("file_name", "—"),
+                item.get("valid_from", "—"),
+                item.get("valid_to", "—"),
+                item.get("subject_cn", "—"),
+                item.get("serial_number", "—"),
+                item.get("email", "—"),
+                item.get("office_number", "—"),
+                item.get("department", "—"),
+                item.get("phone", "—"),
+                status,
+            )
+            # Use only the columns that match new UI
+            new_row = (
+                item.get("subject_cn", "—"),
+                item.get("file_name", "—"),
+                item.get("valid_to", "—"),
+                item.get("days_left", "—"),
+                item.get("department", "—"),
+                item.get("phone", "—"),
+                status,
+            )
+            self.table.insert_row(new_row, tags=tags)
+            
+    def update_stats_view(self, total, expired, warning, normal):
+        self.card_total.set_value(str(total))
+        self.card_expired.set_value(str(expired))
+        self.card_warning.set_value(str(warning))
+        self.card_normal.set_value(str(normal))
+        
+    def set_loaded_files(self, file_paths):
+        pass # Not using listbox in new design
+        
+    def set_search_result_text(self, text):
+        self.search_result_label.config(text=text)
+        
+    def clear_search_input(self):
+        self.search_var.set("")
+        
+    def remove_tree_items(self, item_ids):
+        for item_id in item_ids:
+            self.table.tree.delete(item_id)
+            
     def create_tooltip(self, widget, text):
         def show_tooltip(event):
             tooltip = tk.Toplevel(widget)

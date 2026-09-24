@@ -3,10 +3,8 @@ import sys
 import threading
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional
 
 from certificate_analyzer.domain.enums.notification_type import NotificationType
-from certificate_analyzer.domain.models.notification import Notification
 from certificate_analyzer.infrastructure.notifications.api_notifier import (
     ApiNotificationBackend,
 )
@@ -54,14 +52,14 @@ class PushNotificationManager:
 
         self.history_store = history_store
         self.notification_interval = 3600
-        self.last_notification_time: Dict[str, float] = {}
-        self._last_messages: Dict[tuple, float] = {}
+        self.last_notification_time: dict[str, float] = {}
+        self._last_messages: dict[tuple, float] = {}
         self._stop = threading.Event()
-        self.thread: Optional[threading.Thread] = None
+        self.thread: threading.Thread | None = None
         self.running: bool = False
 
     @property
-    def api_backend(self) -> Optional[ApiNotificationBackend]:
+    def api_backend(self) -> ApiNotificationBackend | None:
         """Возвращает подключенный ApiNotificationBackend при его наличии в Composite backend."""
         if isinstance(self.backend, ApiNotificationBackend):
             return self.backend
@@ -74,7 +72,7 @@ class PushNotificationManager:
     def configure_api(
         self,
         api_url: str = "https://api.example.com/v1/notifications",
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         stub_mode: bool = True,
     ) -> ApiNotificationBackend:
         """Настраивает бэкенд отправки через API или добавляет его, если он ещё не подключен."""

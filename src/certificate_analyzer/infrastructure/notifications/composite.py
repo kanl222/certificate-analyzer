@@ -1,7 +1,6 @@
 """Составной бэкенд для одновременной отправки уведомлений через несколько каналов."""
 
 import logging
-from typing import List
 
 from certificate_analyzer.infrastructure.notifications.base import NotificationBackend
 
@@ -11,8 +10,8 @@ logger = logging.getLogger(__name__)
 class CompositeNotificationBackend(NotificationBackend):
     """Отправляет уведомление одновременно во все зарегистрированные бэкенды (Desktop, API и др.)."""
 
-    def __init__(self, backends: List[NotificationBackend] = None) -> None:
-        self.backends: List[NotificationBackend] = list(backends or [])
+    def __init__(self, backends: list[NotificationBackend] = None) -> None:
+        self.backends: list[NotificationBackend] = list(backends or [])
 
     def add_backend(self, backend: NotificationBackend) -> None:
         """Добавляет бэкенд в список рассылки."""

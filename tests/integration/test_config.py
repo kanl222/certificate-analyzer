@@ -1,9 +1,10 @@
 import pytest
-from certificate_analyzer.infrastructure.config.settings import Settings
+
 from certificate_analyzer.infrastructure.config.config_loader import (
     load_settings,
     save_settings,
 )
+from certificate_analyzer.infrastructure.config.settings import Settings
 
 
 def test_roundtrip(tmp_path):

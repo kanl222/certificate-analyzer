@@ -1,6 +1,9 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
-from datetime import datetime
+from datetime import UTC, datetime, timezone
+from tkinter import messagebox, ttk
+
+from tkcalendar import DateEntry
+
 from certificate_analyzer.presentation.gui.styles import (
     ACCENT_COLOR,
     BG_COLOR,
@@ -9,11 +12,10 @@ from certificate_analyzer.presentation.gui.styles import (
     EXPIRED_TEXT,
     NORMAL_COLOR,
     NORMAL_TEXT,
+    UI_FONT,
     WARNING_COLOR,
     WARNING_TEXT,
-    UI_FONT,
 )
-from tkcalendar import DateEntry
 
 
 class CertificateView:
@@ -32,6 +34,8 @@ class CertificateView:
         self.update_stats()
 
     def update_calendar_colors(self):
+        if not hasattr(self, "cal") or self.cal is None:
+            return
         try:
             self.clear_calendar_events()
             current_date = self.cal.get_date()
@@ -62,10 +66,10 @@ class CertificateView:
                                 priority = 1
                             if day not in day_priority or day_priority[day] < priority:
                                 day_priority[day] = priority
-                except:
+                except Exception:
                     continue
             for day, priority in day_priority.items():
-                date_obj = datetime(current_year, current_month, day).date()
+                date_obj = datetime(current_year, current_month, day, tzinfo=UTC).date()
                 if priority == 3:
                     self.cal.calevent_create(date_obj, "Просрочен", "expired")
                     self.cal.tag_config(
@@ -81,7 +85,7 @@ class CertificateView:
                     self.cal.tag_config(
                         "normal", background=NORMAL_COLOR, foreground=NORMAL_TEXT
                     )
-            today = datetime.now().date()
+            today = datetime.now(UTC).date()
             if today.month == current_month and today.year == current_year:
                 self.cal.calevent_create(today, "Сегодня", "today")
                 self.cal.tag_config("today", background="#3498db", foreground="white")
@@ -89,9 +93,11 @@ class CertificateView:
             print(f"Ошибка при обновлении календаря: {e}")
 
     def clear_calendar_events(self):
+        if not hasattr(self, "cal") or self.cal is None:
+            return
         try:
             self.cal.calevent_remove("all")
-        except:
+        except Exception:
             pass
 
     def on_month_change(self, event):
@@ -212,7 +218,7 @@ class CertificateView:
                         item_date = datetime.strptime(date_field, "%d.%m.%Y").date()
                         if item_date == selected_date:
                             docs_on_date.append(item)
-                except:
+                except Exception:
                     continue
             if docs_on_date:
                 doc_list = []
@@ -230,7 +236,7 @@ class CertificateView:
             print(f"Ошибка при обработке даты: {e}")
 
     def show_today(self):
-        today = datetime.now().date()
+        today = datetime.now(UTC).date()
         self.cal.selection_set(today)
         self.cal.see(today)
         self.update_calendar_colors()
@@ -243,7 +249,7 @@ class CertificateView:
         self.cal._next_month()
         self.update_calendar_colors()
 
-    def update_stats(self):
+    def _update_stats_legacy(self):
         current_data = self.cert_data_cache
 
         total = len(current_data)
@@ -423,7 +429,7 @@ class CertificateView:
 
                 elif chart_type == "doughnut":
                     self.ax_status = self.figure_status.add_subplot(111)
-                    wedges, texts, autotexts = self.ax_status.pie(
+                    _, _, autotexts = self.ax_status.pie(
                         sizes,
                         labels=labels,
                         colors=excel_colors,

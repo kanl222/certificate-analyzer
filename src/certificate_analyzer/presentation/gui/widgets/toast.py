@@ -1,18 +1,20 @@
 import tkinter as tk
+from typing import ClassVar
+
 from certificate_analyzer.presentation.gui.styles import (
     BUTTON_COLOR,
     EXPIRED_COLOR,
     EXPIRED_TEXT,
     NORMAL_COLOR,
     NORMAL_TEXT,
+    UI_FONT,
     WARNING_COLOR,
     WARNING_TEXT,
-    UI_FONT,
 )
 
 
 class ToastNotification:
-    _active_toasts = []
+    _active_toasts: ClassVar[list] = []
 
     def __init__(self, parent, message, duration=4000, notification_type="info"):
         self.parent = parent
@@ -46,7 +48,7 @@ class ToastNotification:
                             and toast.message_text == self.message
                         ):
                             return
-                    except:
+                    except Exception:
                         pass
 
             self.toast = tk.Toplevel(self.parent)
@@ -142,7 +144,7 @@ class ToastNotification:
             try:
                 self.toast.attributes("-alpha", alpha)
                 self.toast.after(20, lambda: self._fade_in(alpha))
-            except:
+            except Exception:
                 pass
 
     def _fade_out(self, alpha=0.95):
@@ -151,7 +153,7 @@ class ToastNotification:
             try:
                 self.toast.attributes("-alpha", alpha)
                 self.toast.after(20, lambda: self._fade_out(alpha))
-            except:
+            except Exception:
                 pass
         else:
             self._close()
@@ -163,5 +165,5 @@ class ToastNotification:
                     ToastNotification._active_toasts.remove(self.toast)
                 self.toast.destroy()
                 self.toast = None
-        except:
+        except Exception:
             pass

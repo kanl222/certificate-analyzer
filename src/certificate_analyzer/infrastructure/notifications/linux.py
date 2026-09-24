@@ -1,7 +1,8 @@
 """Уведомления для ОС Linux."""
 
-import subprocess
 import logging
+import subprocess
+
 from certificate_analyzer.infrastructure.notifications.base import NotificationBackend
 
 logger = logging.getLogger(__name__)

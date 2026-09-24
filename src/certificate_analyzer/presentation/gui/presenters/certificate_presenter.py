@@ -1,16 +1,17 @@
+import datetime
 import os
-from collections import Counter
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import pyperclip
 
-from certificate_analyzer.presentation.gui.view_models.certificate_view_model import (
-    create_certificate_view_model,
+from certificate_analyzer.infrastructure.config.config_loader import load_settings
+from certificate_analyzer.infrastructure.config.config_loader import (
+    save_settings as persist_settings,
 )
 from certificate_analyzer.infrastructure.platform.base import open_path
-from certificate_analyzer.infrastructure.config.config_loader import (
-    load_settings,
-    save_settings as persist_settings,
+from certificate_analyzer.presentation.gui.view_models.certificate_view_model import (
+    create_certificate_view_model,
 )
 
 
@@ -20,13 +21,13 @@ class CertificatePresenter:
     def __init__(self, view, model):
         self.view = view
         self.model = model
-        self.cert_data_cache: List[Dict[str, Any]] = []
+        self.cert_data_cache: list[dict[str, Any]] = []
         self.current_search_query: str = ""
         self.search_active: bool = False
         self.date_filter_active: bool = False
-        self.date_from: Optional[datetime.date] = None
-        self.date_to: Optional[datetime.date] = None
-        self.sort_reverse: Dict[str, bool] = {
+        self.date_from: datetime.date | None = None
+        self.date_to: datetime.date | None = None
+        self.sort_reverse: dict[str, bool] = {
             "Тип": False,
             "Имя файла": False,
             "С": False,
@@ -79,7 +80,7 @@ class CertificatePresenter:
         except Exception as e:
             self.view.show_error("Ошибка", str(e))
 
-    def parse_certificates(self) -> List[Dict[str, Any]]:
+    def parse_certificates(self) -> list[dict[str, Any]]:
         """Parse certificates using the Model and map them to ViewModels for the View."""
         try:
             # Parse certificates in the core model
@@ -112,7 +113,7 @@ class CertificatePresenter:
         self.view.display_certificates(data_to_display)
         self.update_stats()
 
-    def get_filtered_data(self) -> List[Dict[str, Any]]:
+    def get_filtered_data(self) -> list[dict[str, Any]]:
         """Apply active search and date filters to the cached data."""
         data = self.cert_data_cache
 
@@ -191,7 +192,7 @@ class CertificatePresenter:
         self.date_to = None
         self.display_current_data()
 
-    def update_stats(self) -> Dict[str, int]:
+    def update_stats(self) -> dict[str, int]:
         """Calculate statistics from current dataset and command View to render them."""
         data = self.cert_data_cache
         total = len(data)
@@ -233,7 +234,7 @@ class CertificatePresenter:
                         self.view.show_error("Ошибка", f"Не удалось открыть файл: {e}")
                 break
 
-    def delete_selected_certificates(self, selected_items: List[tuple]) -> int:
+    def delete_selected_certificates(self, selected_items: list[tuple]) -> int:
         """Delete physical certificate files for selected rows."""
         if not selected_items:
             self.view.show_warning("Внимание", "Выберите записи для удаления")
@@ -263,7 +264,7 @@ class CertificatePresenter:
             self.view.show_message("Успех", f"Удалено файлов: {deleted_count}")
         return deleted_count
 
-    def copy_to_clipboard(self, rows_data: List[List[Any]]) -> None:
+    def copy_to_clipboard(self, rows_data: list[list[Any]]) -> None:
         """Copy selected rows to system clipboard as tab-separated values."""
         if not rows_data:
             self.view.show_error("Ошибка", "Нет выделенных строк!")
@@ -272,7 +273,7 @@ class CertificatePresenter:
         pyperclip.copy("\n".join(lines))
         self.view.show_message("Успех", "Скопировано!")
 
-    def export_to_excel(self, save_path: str, report_title: str) -> Optional[str]:
+    def export_to_excel(self, save_path: str, report_title: str) -> str | None:
         """Export current certificate view models to Excel via model."""
         if not self.cert_data_cache:
             self.view.show_error("Ошибка", "Нет данных для экспорта!")
@@ -285,7 +286,7 @@ class CertificatePresenter:
         figure: Any,
         report_title: str,
         include_chart: bool = True,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Export current certificate view models to PDF via model."""
         if not self.cert_data_cache:
             self.view.show_error("Ошибка", "Нет данных для экспорта!")

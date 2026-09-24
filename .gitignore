@@ -11,3 +11,7 @@ wheels/
 scratch/*
 *.db
 MEMORY.md
+*.log
+*.key
+*.pem
+*.crt

@@ -1,8 +1,8 @@
 """Доменная модель уведомления."""
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 from certificate_analyzer.domain.enums.notification_type import NotificationType
 
@@ -15,9 +15,9 @@ class Notification:
     message: str
     notification_type: NotificationType = NotificationType.INFO
     timestamp: datetime = field(default_factory=datetime.utcnow)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Преобразование уведомления в словарь для сериализации."""
         res = asdict(self)
         res["notification_type"] = self.notification_type.value

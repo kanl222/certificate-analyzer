@@ -1,23 +1,26 @@
-from certificate_analyzer.infrastructure.config.config_loader import (
-    load_settings,
-    save_settings as persist_settings,
-)
+import json
+import os
 import sys
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, simpledialog
-import os
-import json
+from tkinter import filedialog, messagebox, simpledialog, ttk
+
+from certificate_analyzer.application.services.notification_service import (
+    PushNotificationManager,
+)
+from certificate_analyzer.infrastructure.config.config_loader import (
+    load_settings,
+    save_config,
+)
+from certificate_analyzer.infrastructure.config.config_loader import (
+    save_settings as persist_settings,
+)
+from certificate_analyzer.infrastructure.config.paths import notification_config_path
 from certificate_analyzer.presentation.gui.styles import (
     ACCENT_COLOR,
     BG_COLOR,
     EXPIRED_COLOR,
     UI_FONT,
 )
-from certificate_analyzer.application.services.notification_service import (
-    PushNotificationManager,
-)
-from certificate_analyzer.infrastructure.config.config_loader import save_config
-from certificate_analyzer.infrastructure.config.paths import notification_config_path
 
 
 class SettingsController:

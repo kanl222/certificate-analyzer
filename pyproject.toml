@@ -17,6 +17,7 @@ dependencies = [
     "matplotlib>=3.11.2",
     "tkcalendar>=1.6.1",
     "pyperclip>=1.11.0",
+    "pyside6>=6.11.2",
 ]
 
 [project.optional-dependencies]

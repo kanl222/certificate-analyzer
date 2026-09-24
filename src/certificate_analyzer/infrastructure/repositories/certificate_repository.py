@@ -1,9 +1,14 @@
-from typing import List, Optional
+
 from sqlalchemy.orm import Session
-from certificate_analyzer.infrastructure.database.models import CertificateModel, EmployeeModel
+
+from certificate_analyzer.domain.enums.certificate_status import CertificateStatus
 from certificate_analyzer.domain.models.certificate import Certificate
 from certificate_analyzer.domain.models.employee import Employee
-from certificate_analyzer.domain.enums.certificate_status import CertificateStatus
+from certificate_analyzer.infrastructure.database.models import (
+    CertificateModel,
+    EmployeeModel,
+)
+
 
 class CertificateRepository:
     def __init__(self, session: Session):
@@ -39,11 +44,11 @@ class CertificateRepository:
 
         self.session.commit()
 
-    def get_all(self) -> List[Certificate]:
+    def get_all(self) -> list[Certificate]:
         models = self.session.query(CertificateModel).all()
         return [self._to_domain(model) for model in models]
 
-    def find_by_fingerprint(self, fingerprint: str) -> Optional[Certificate]:
+    def find_by_fingerprint(self, fingerprint: str) -> Certificate | None:
         model = self.session.query(CertificateModel).filter_by(fingerprint_sha256=fingerprint).first()
         if model:
             return self._to_domain(model)

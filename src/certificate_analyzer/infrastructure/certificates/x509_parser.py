@@ -1,7 +1,7 @@
 """Модуль для парсинга сертификатов X.509."""
 
-from pathlib import Path
 import re
+from pathlib import Path
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes

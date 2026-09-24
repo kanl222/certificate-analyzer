@@ -5,7 +5,7 @@ import logging
 import urllib.error
 import urllib.request
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 from uuid import uuid4
 
 from certificate_analyzer.infrastructure.notifications.base import NotificationBackend
@@ -23,7 +23,7 @@ class ApiNotificationBackend(NotificationBackend):
     def __init__(
         self,
         api_url: str = "https://api.example.com/v1/notifications",
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         stub_mode: bool = True,
         timeout: float = 5.0,
     ) -> None:
@@ -31,9 +31,9 @@ class ApiNotificationBackend(NotificationBackend):
         self.api_key = api_key
         self.stub_mode = stub_mode
         self.timeout = timeout
-        self.history: List[Dict[str, Any]] = []
+        self.history: list[dict[str, Any]] = []
 
-    def send(self, title: str, message: str, notification_type: str = "info", **kwargs) -> Dict[str, Any]:
+    def send(self, title: str, message: str, notification_type: str = "info", **kwargs) -> dict[str, Any]:
         """Отправляет уведомление в API либо имитирует отправку в stub-режиме."""
         payload = {
             "notification_id": str(uuid4()),
@@ -49,7 +49,7 @@ class ApiNotificationBackend(NotificationBackend):
             return self._send_stub(payload)
         return self._send_http(payload)
 
-    def _send_stub(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _send_stub(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Эмуляция отправки (заглушка API)."""
         logger.info(
             "[API Notifier STUB] Отправка уведомления на %s: ID=%s, Title='%s', Type='%s'",
@@ -70,7 +70,7 @@ class ApiNotificationBackend(NotificationBackend):
         self.history.append(result)
         return result
 
-    def _send_http(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _send_http(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Реальная отправка HTTP POST запроса."""
         data = json.dumps(payload).encode("utf-8")
         headers = {

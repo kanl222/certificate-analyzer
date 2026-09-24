@@ -1,24 +1,26 @@
 import io
 from pathlib import Path
 from xml.sax.saxutils import escape
+
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
+    Image,
+    Paragraph,
     SimpleDocTemplate,
+    Spacer,
     Table,
     TableStyle,
-    Paragraph,
-    Spacer,
-    Image,
 )
+
 from certificate_analyzer.infrastructure.reports.rows import (
     HEADERS,
     model_rows,
-    values,
     output_path,
+    values,
 )
 
 

@@ -1,6 +1,7 @@
+import os
 import tkinter as tk
 from tkinter import messagebox
-import os
+
 from certificate_analyzer.presentation.gui.views.mchd_view import MCHDTableWindow
 
 
@@ -42,7 +43,7 @@ class MchdController:
             )
             self.analyze_mchd()
         except Exception as e:
-            messagebox.showerror("Ошибка", f"Ошибка при сканировании МЧД:\n{str(e)}")
+            messagebox.showerror("Ошибка", f"Ошибка при сканировании МЧД:\n{e!s}")
 
     def analyze_mchd(self):
         if not self.mchd_data_cache:

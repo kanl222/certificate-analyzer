@@ -1,4 +1,4 @@
-from typing import Protocol, List, Dict, Any, Optional, Tuple
+from typing import Any, Protocol
 
 
 class ICertificateView(Protocol):
@@ -24,11 +24,11 @@ class ICertificateView(Protocol):
         """Ask user for confirmation."""
         ...
 
-    def display_certificates(self, data_list: List[Dict[str, Any]]) -> None:
+    def display_certificates(self, data_list: list[dict[str, Any]]) -> None:
         """Render certificate rows into the table/treeview."""
         ...
 
-    def set_loaded_files(self, file_paths: List[str]) -> None:
+    def set_loaded_files(self, file_paths: list[str]) -> None:
         """Update file list in the sidebar."""
         ...
 
@@ -48,10 +48,10 @@ class ICertificateView(Protocol):
         """Clear search entry."""
         ...
 
-    def get_selected_rows(self) -> List[Tuple[Any, Dict[str, Any]]]:
+    def get_selected_rows(self) -> list[tuple[Any, dict[str, Any]]]:
         """Return currently selected rows in the table."""
         ...
 
-    def remove_tree_items(self, item_ids: List[Any]) -> None:
+    def remove_tree_items(self, item_ids: list[Any]) -> None:
         """Remove specified items from treeview."""
         ...

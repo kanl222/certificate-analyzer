@@ -1,4 +1,5 @@
 import signal
+
 from certificate_analyzer.runtime.worker import MonitoringWorker
 
 

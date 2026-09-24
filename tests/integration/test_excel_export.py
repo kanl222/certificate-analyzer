@@ -1,4 +1,5 @@
 from openpyxl import load_workbook
+
 from certificate_analyzer.infrastructure.reports.excel_exporter import (
     ExcelReportExporter,
 )

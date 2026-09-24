@@ -1,5 +1,6 @@
 from dataclasses import asdict, fields
 from pathlib import Path
+
 from certificate_analyzer.infrastructure.config.paths import config_dir
 from certificate_analyzer.infrastructure.config.settings import Settings
 from certificate_analyzer.infrastructure.persistence.json_storage import (

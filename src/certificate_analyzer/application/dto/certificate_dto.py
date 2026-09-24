@@ -1,12 +1,26 @@
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Dict
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field, fields
+from datetime import UTC, datetime
+from typing import Any
 
 from certificate_analyzer.domain.enums.certificate_status import CertificateStatus
 
+EMPTY = "—"
+
 
 def utc(dt: datetime) -> datetime:
-    return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    """Normalize datetime to UTC."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+
+    return dt.astimezone(UTC)
+
+
+def _display(value: Any, default: str = EMPTY) -> Any:
+    """Replace None/empty string with UI placeholder."""
+    return value if value not in (None, "") else default
 
 
 @dataclass(slots=True)
@@ -23,42 +37,119 @@ class CertificateDTO:
     phone: str
     status: str
     color: str
-    
-    details: Dict[str, Any] = None
 
-    def __getitem__(self, key):
-        return getattr(self, key)
+    details: dict[str, Any] = field(default_factory=dict)
 
-    def get(self, key, default=None):
-        return getattr(self, key, default)
+    def __getitem__(self, key: str) -> Any:
+        if key != "details" and hasattr(self, key):
+            return getattr(self, key)
 
-    def keys(self):
-        return self.__annotations__.keys()
+        return self.details.get(key, EMPTY)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key != "details" and hasattr(self, key):
+            return getattr(self, key)
+
+        return self.details.get(key, default)
+
+    def keys(self) -> list[str]:
+        return [
+            item.name
+            for item in fields(self)
+            if item.name != "details"
+        ] + list(self.details)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return flattened dictionary representation."""
+        result = {
+            item.name: getattr(self, item.name)
+            for item in fields(self)
+            if item.name != "details"
+        }
+
+        result.update(self.details)
+        return result
 
 
-def certificate_to_dict(cert):
-    days = max(0, (utc(cert.valid_to) - datetime.now(timezone.utc)).days)
-    labels = {
-        CertificateStatus.EXPIRED: ("Просрочен", "#e57373"),
-        CertificateStatus.EXPIRING_SOON: (f"Истекает ({days} дн.)", "#ffd54f"),
-        CertificateStatus.ACTIVE: ("Активен", "#81c784"),
-        CertificateStatus.INVALID: ("Недействителен", "#e57373"),
-        CertificateStatus.REVOKED: ("Отозван", "#e57373"),
-    }
-    status, color = labels[cert.status]
-    from dataclasses import asdict
-    dto = CertificateDTO(
-        file_name=getattr(cert, "source_path", "—"),
+STATUS_VIEW: dict[CertificateStatus, tuple[str, str]] = {
+    CertificateStatus.EXPIRED: (
+        "Просрочен",
+        "#e57373",
+    ),
+    CertificateStatus.ACTIVE: (
+        "Активен",
+        "#81c784",
+    ),
+    CertificateStatus.INVALID: (
+        "Недействителен",
+        "#e57373",
+    ),
+    CertificateStatus.REVOKED: (
+        "Отозван",
+        "#e57373",
+    ),
+}
+
+
+def _status_view(
+    status: CertificateStatus,
+    valid_to: datetime,
+) -> tuple[str, str]:
+    """Convert certificate domain status to UI label and color."""
+
+    if status is CertificateStatus.EXPIRING_SOON:
+        days = max(
+            0,
+            (utc(valid_to) - datetime.now(UTC)).days,
+        )
+        return f"Истекает ({days} дн.)", "#ffd54f"
+
+    return STATUS_VIEW.get(
+        status,
+        ("Неизвестен", "#bdbdbd"),
+    )
+
+
+def certificate_to_dto(cert) -> CertificateDTO:
+    """Convert certificate domain model to DTO."""
+
+    status, color = _status_view(
+        cert.status,
+        cert.valid_to,
+    )
+
+    employee = getattr(cert, "employee", None)
+
+    phones = (
+        getattr(employee, "phones", None)
+        if employee is not None
+        else None
+    )
+
+    return CertificateDTO(
+        file_name=str(
+            getattr(cert, "source_path", None) or EMPTY
+        ),
         file_type="Сертификат",
         valid_from=cert.valid_from.strftime("%d.%m.%Y"),
         valid_to=cert.valid_to.strftime("%d.%m.%Y"),
-        subject_cn=cert.subject,
-        serial_number=cert.serial_number or "—",
-        email="—",
-        office_number=cert.employee.office if cert.employee and cert.employee.office else "—",
-        department=cert.employee.department if cert.employee and cert.employee.department else "—",
-        phone=", ".join(cert.employee.phones) if cert.employee and getattr(cert.employee, "phones", None) else "—",
+        subject_cn=_display(cert.subject),
+        serial_number=_display(cert.serial_number),
+        email=_display(
+            getattr(cert, "email", None)
+        ),
+        office_number=_display(
+            getattr(employee, "office", None)
+        ),
+        department=_display(
+            getattr(employee, "department", None)
+        ),
+        phone=", ".join(phones) if phones else EMPTY,
         status=status,
         color=color,
     )
-    return asdict(dto)
+
+
+def certificate_to_dict(cert) -> dict[str, Any]:
+    """Compatibility adapter for code expecting a dictionary."""
+    return certificate_to_dto(cert).to_dict()

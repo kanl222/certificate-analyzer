@@ -1,5 +1,7 @@
-from defusedxml.common import DefusedXmlException
 from xml.etree.ElementTree import ParseError
+
+from defusedxml.common import DefusedXmlException
+
 from certificate_analyzer.infrastructure.certificates.scanner import scan_files
 from certificate_analyzer.infrastructure.mchd.xml_parser import MchdXmlParser
 

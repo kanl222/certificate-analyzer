@@ -1,12 +1,12 @@
-from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
+from typing import Any
 
 from certificate_analyzer.domain.enums.certificate_status import CertificateStatus
 
 
 def utc(dt: datetime) -> datetime:
-    return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(UTC) if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
 @dataclass(slots=True)
@@ -24,7 +24,7 @@ class CertificateViewModel:
     status: str
     color: str
     tag: str
-    details: Optional[Dict[str, Any]] = None
+    details: dict[str, Any] | None = None
 
     def __getitem__(self, key):
         return getattr(self, key)
@@ -32,14 +32,14 @@ class CertificateViewModel:
     def get(self, key, default=None):
         return getattr(self, key, default)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
-def create_certificate_view_model(cert, source_path: Optional[str] = None) -> CertificateViewModel:
+def create_certificate_view_model(cert, source_path: str | None = None) -> CertificateViewModel:
     """Format domain Certificate or DTO into a presentation ViewModel with UI colors and labels."""
     valid_to = cert.valid_to
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     days = max(0, (utc(valid_to) - now).days) if valid_to else 0
 
     status = getattr(cert, "status", CertificateStatus.ACTIVE)

@@ -5,7 +5,9 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 from xml.etree import ElementTree as XML
+
 from defusedxml import ElementTree as ET
+
 from certificate_analyzer.infrastructure.mchd.xml_parser import (
     MchdXmlParser,
     find,

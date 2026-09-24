@@ -1,8 +1,9 @@
-from typing import List, Optional
 from sqlalchemy.orm import Session
-from certificate_analyzer.infrastructure.database.models import MchdModel
-from certificate_analyzer.domain.models.mchd import MchdDocument
+
 from certificate_analyzer.domain.enums.mchd_status import MchdStatus
+from certificate_analyzer.domain.models.mchd import MchdDocument
+from certificate_analyzer.infrastructure.database.models import MchdModel
+
 
 class MchdRepository:
     def __init__(self, session: Session):
@@ -28,7 +29,7 @@ class MchdRepository:
 
         self.session.commit()
 
-    def get_all(self) -> List[MchdDocument]:
+    def get_all(self) -> list[MchdDocument]:
         models = self.session.query(MchdModel).all()
         return [self._to_domain(model) for model in models]
 

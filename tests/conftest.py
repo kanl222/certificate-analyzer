@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -18,7 +19,7 @@ def certificate_file(tmp_path):
                 x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "Отдел кадров"),
             ]
         )
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cert = (
             x509.CertificateBuilder()
             .subject_name(subject)

@@ -1,7 +1,7 @@
 """Модуль для загрузки телефонного справочника из DOCX файлов."""
 
 import re
-from typing import List
+
 from docx import Document
 
 from certificate_analyzer.domain.models.employee import Employee
@@ -10,7 +10,7 @@ from certificate_analyzer.domain.models.employee import Employee
 class DocxPhonebookLoader:
     """Загрузчик телефонного справочника из формата DOCX."""
 
-    def load(self, file_path: str) -> List[Employee]:
+    def load(self, file_path: str) -> list[Employee]:
         """Загружает данные сотрудников из DOCX файла.
 
         Args:
@@ -22,7 +22,7 @@ class DocxPhonebookLoader:
         Raises:
             Exception: При ошибке чтения файла.
         """
-        employees: List[Employee] = []
+        employees: list[Employee] = []
         doc = Document(file_path)
 
         for table in doc.tables:

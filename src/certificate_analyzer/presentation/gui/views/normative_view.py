@@ -1,6 +1,7 @@
 import tkinter as tk
-from tkinter import ttk
 import webbrowser
+from tkinter import ttk
+
 from certificate_analyzer.presentation.gui.styles import (
     ACCENT_COLOR,
     BG_COLOR,

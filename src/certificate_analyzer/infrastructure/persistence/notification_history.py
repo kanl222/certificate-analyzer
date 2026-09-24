@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from certificate_analyzer.infrastructure.config.paths import config_dir
 from certificate_analyzer.infrastructure.persistence.json_storage import (
     read_json,

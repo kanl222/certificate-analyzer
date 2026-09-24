@@ -1,6 +1,7 @@
 """Уведомления для ОС Windows."""
 
 import logging
+
 from certificate_analyzer.infrastructure.notifications.base import NotificationBackend
 
 logger = logging.getLogger(__name__)

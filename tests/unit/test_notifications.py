@@ -1,7 +1,8 @@
-import time
 from unittest.mock import MagicMock
-import pytest
 
+from certificate_analyzer.application.services.notification_service import (
+    PushNotificationManager,
+)
 from certificate_analyzer.domain.enums.notification_type import NotificationType
 from certificate_analyzer.domain.models.notification import Notification
 from certificate_analyzer.infrastructure.notifications.api_notifier import (
@@ -9,9 +10,6 @@ from certificate_analyzer.infrastructure.notifications.api_notifier import (
 )
 from certificate_analyzer.infrastructure.notifications.composite import (
     CompositeNotificationBackend,
-)
-from certificate_analyzer.application.services.notification_service import (
-    PushNotificationManager,
 )
 
 

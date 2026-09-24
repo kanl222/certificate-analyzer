@@ -1,10 +1,13 @@
-from certificate_analyzer.infrastructure.config.config_loader import load_settings
-from certificate_analyzer.infrastructure.platform.base import open_path
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
 import os
-from datetime import datetime
+import tkinter as tk
+from datetime import UTC, datetime
+from tkinter import filedialog, messagebox, ttk
+
 import pyperclip
+
+from certificate_analyzer.infrastructure.config.config_loader import load_settings
+from certificate_analyzer.infrastructure.mchd.merger import MCHDMerger
+from certificate_analyzer.infrastructure.platform.base import open_path
 from certificate_analyzer.presentation.gui.styles import (
     ACCENT_COLOR,
     BG_COLOR,
@@ -17,11 +20,10 @@ from certificate_analyzer.presentation.gui.styles import (
     MCHD_COLOR,
     MCHD_LIGHT_COLOR,
     TEXT_COLOR,
+    UI_FONT,
     WARNING_COLOR,
     WARNING_TEXT,
-    UI_FONT,
 )
-from certificate_analyzer.infrastructure.mchd.merger import MCHDMerger
 
 
 class AuthoritiesViewWindow:
@@ -689,7 +691,7 @@ class MCHDTableWindow:
                 copy_text += "Нет данных\n"
             copy_text += "\n" + "=" * 50 + "\n"
             copy_text += (
-                f"Дата выгрузки: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n"
+                f"Дата выгрузки: {datetime.now(UTC).strftime('%d.%m.%Y %H:%M:%S')}\n"
             )
             pyperclip.copy(copy_text)
             messagebox.showinfo("Успех", "Все данные скопированы в буфер обмена")
@@ -783,9 +785,9 @@ class MCHDTableWindow:
                 try:
                     if date_str and date_str not in ("Не найдена", "Не найден", ""):
                         return datetime.strptime(date_str, "%d.%m.%Y")
-                except:
+                except Exception:
                     pass
-                return datetime.min
+                return datetime.min.replace(tzinfo=UTC)
 
             data.sort(key=lambda x: parse_date(x[0]), reverse=self.sort_reverse[col])
         elif col == "ФИО":
@@ -876,20 +878,20 @@ class MCHDTableWindow:
         selected_mchd = self.get_selected_mchd_objects()
 
         if count >= 1:
-            persons = set(m.get("full_name", "") for m in selected_mchd)
+            persons = {m.get("full_name", "") for m in selected_mchd}
             if count >= 2 and len(persons) == 1:
                 self.merge_btn.config(state=tk.NORMAL)
                 self.view_auth_btn.config(state=tk.NORMAL)
                 self.view_personal_btn.config(state=tk.DISABLED)
                 self.person_info_label.config(
-                    text=f"ФИО: {list(persons)[0]} (можно объединить)"
+                    text=f"ФИО: {next(iter(persons))} (можно объединить)"
                 )
             elif count == 1:
                 self.merge_btn.config(state=tk.DISABLED)
                 self.view_auth_btn.config(state=tk.NORMAL)
                 self.view_personal_btn.config(state=tk.NORMAL)
                 self.person_info_label.config(
-                    text=f"ФИО: {list(persons)[0] if persons else ''}"
+                    text=f"ФИО: {next(iter(persons)) if persons else ''}"
                 )
             else:
                 self.merge_btn.config(state=tk.DISABLED)
@@ -901,7 +903,7 @@ class MCHDTableWindow:
                     )
                 else:
                     self.person_info_label.config(
-                        text=f"ФИО: {list(persons)[0] if persons else ''}"
+                        text=f"ФИО: {next(iter(persons)) if persons else ''}"
                     )
         else:
             self.merge_btn.config(state=tk.DISABLED)
@@ -962,14 +964,14 @@ class MCHDTableWindow:
         if len(selected_mchd) < 2:
             messagebox.showerror("Ошибка", "Не удалось найти выбранные файлы")
             return
-        persons = set(m.get("full_name", "") for m in selected_mchd)
+        persons = {m.get("full_name", "") for m in selected_mchd}
         if len(persons) > 1:
             messagebox.showerror("Ошибка", "Нельзя объединять МЧД разных людей!")
             return
         merged_data = MCHDMerger.get_merged_authorities(selected_mchd)
         response = messagebox.askyesnocancel(
             "Объединение МЧД",
-            f"Выбрано {len(selected_mchd)} МЧД для {list(persons)[0]}\n"
+            f"Выбрано {len(selected_mchd)} МЧД для {next(iter(persons))}\n"
             f"Уникальных кодов: {merged_data.get('unique_codes_count', 0)}\n\n"
             "Нажмите 'Да' чтобы создать неподписанный черновик XML,\n"
             "'Нет' чтобы только просмотреть коды,\n"
@@ -978,8 +980,8 @@ class MCHDTableWindow:
         if response is None:
             return
         if response:
-            person_name = list(persons)[0].replace(" ", "_")
-            default_name = f"Объединенная_МЧД_{person_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xml"
+            person_name = next(iter(persons)).replace(" ", "_")
+            default_name = f"Объединенная_МЧД_{person_name}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.xml"
             save_path = filedialog.asksaveasfilename(
                 defaultextension=".xml",
                 filetypes=[("XML файлы", "*.xml"), ("Все файлы", "*.*")],
@@ -998,7 +1000,7 @@ class MCHDTableWindow:
                 messagebox.showinfo(
                     "Успех",
                     f"Создан неподписанный черновик МЧД.\n\n"
-                    f"ФИО: {list(persons)[0]}\n"
+                    f"ФИО: {next(iter(persons))}\n"
                     f"Всего уникальных кодов: {merged_data.get('unique_codes_count', 0)}\n"
                     f"Файл сохранен:\n{result}",
                 )
@@ -1055,7 +1057,7 @@ class MCHDTableWindow:
             return
         try:
             default_name = (
-                f"mchd_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                f"mchd_report_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.xlsx"
             )
             save_path = filedialog.asksaveasfilename(
                 defaultextension=".xlsx",
@@ -1076,5 +1078,5 @@ class MCHDTableWindow:
             messagebox.showinfo("Успех", f"Отчет сохранен:\n{save_path}")
         except Exception as e:
             messagebox.showerror(
-                "Ошибка", f"Не удалось экспортировать в Excel:\n{str(e)}"
+                "Ошибка", f"Не удалось экспортировать в Excel:\n{e!s}"
             )

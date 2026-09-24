@@ -2,12 +2,12 @@ import os
 import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog, messagebox
-from typing import Any, Dict, List
+from typing import Any
 
+from certificate_analyzer.infrastructure.platform.base import open_path
 from certificate_analyzer.presentation.gui.presenters.certificate_presenter import (
     CertificatePresenter,
 )
-from certificate_analyzer.infrastructure.platform.base import open_path
 
 
 class CertificateController:
@@ -40,13 +40,13 @@ class CertificateController:
     def ask_yes_no(self, title: str, message: str) -> bool:
         return messagebox.askyesno(title, message)
 
-    def set_loaded_files(self, file_paths: List[str]) -> None:
+    def set_loaded_files(self, file_paths: list[str]) -> None:
         if hasattr(self, "listbox_files"):
             self.listbox_files.delete(0, tk.END)
             for f in file_paths:
                 self.listbox_files.insert(tk.END, f)
 
-    def display_certificates(self, data_list: List[Dict[str, Any]]) -> None:
+    def display_certificates(self, data_list: list[dict[str, Any]]) -> None:
         self.cert_data_cache = data_list
         if hasattr(self, "tree"):
             for row in self.tree.get_children():
@@ -63,7 +63,7 @@ class CertificateController:
         if hasattr(self, "search_var"):
             self.search_var.set("")
 
-    def remove_tree_items(self, item_ids: List[Any]) -> None:
+    def remove_tree_items(self, item_ids: list[Any]) -> None:
         if hasattr(self, "tree"):
             for item in item_ids:
                 self.tree.delete(item)
@@ -96,14 +96,64 @@ class CertificateController:
             self.scan_folder()
 
     def scan_folder(self):
+        import threading
         path = self.folder_path.get()
-        self.certificate_presenter.scan_folder(path)
-        self.cert_data_cache = self.certificate_presenter.cert_data_cache
+        if not path:
+            self.show_warning("Внимание", "Выберите папку!")
+            return
+            
+        if hasattr(self, "progress_bar"):
+            self.progress_bar.start()
+        if hasattr(self, "status_label"):
+            self.status_label.config(text="Сканирование...")
+
+        def worker():
+            try:
+                # Backend business logic is now decoupled
+                result = self.core.scan(path)
+                
+                # Update UI in main thread safely
+                if hasattr(self, "root"):
+                    self.root.after(0, lambda: after_scan(result))
+            except Exception:
+                if hasattr(self, "root"):
+                    self.root.after(0, lambda: self.show_error("Ошибка", str(e)))
+
+        def after_scan(result):
+            if hasattr(self, "progress_bar"):
+                self.progress_bar.stop()
+            if hasattr(self, "status_label"):
+                self.status_label.config(text="Готово")
+                
+            # Recreate view models
+            self.core.loaded_files = result.loaded_files
+            self.core.certificates = result.certificates
+            self.core.errors = result.errors
+            
+            view_models = []
+            from certificate_analyzer.presentation.gui.view_models.certificate_view_model import (
+                create_certificate_view_model,
+            )
+            for cert in result.certificates:
+                vm = create_certificate_view_model(cert, source_path=cert.source_path).to_dict()
+                view_models.append(vm)
+                
+            self.certificate_presenter.cert_data_cache = view_models
+            self.cert_data_cache = view_models
+            
+            # Update stats
+            total = len(result.certificates)
+            expired = len(result.expired)
+            warning = len(result.expiring)
+            normal = len(result.active)
+            self.update_stats_view(total, expired, warning, normal)
+            
+            self.display_certificates(view_models)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def parse_certificates(self):
-        results = self.certificate_presenter.parse_certificates()
-        self.cert_data_cache = self.certificate_presenter.cert_data_cache
-        return results
+        return self.cert_data_cache
 
     def on_search(self, *args):
         self.certificate_presenter.on_search(self.search_var.get())
@@ -265,7 +315,7 @@ class CertificateController:
             else:
                 messagebox.showerror("Ошибка", "Не удалось сохранить файл")
         except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось экспортировать в Excel:\n{str(e)}")
+            messagebox.showerror("Ошибка", f"Не удалось экспортировать в Excel:\n{e!s}")
 
     def export_to_pdf_gui(self):
         if not self.cert_data_cache:
@@ -306,7 +356,7 @@ class CertificateController:
             else:
                 messagebox.showerror("Ошибка", "Не удалось сохранить PDF файл")
         except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось экспортировать в PDF:\n{str(e)}")
+            messagebox.showerror("Ошибка", f"Не удалось экспортировать в PDF:\n{e!s}")
 
     def refresh_all(self):
         self.scan_folder()

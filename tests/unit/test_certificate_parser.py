@@ -1,9 +1,10 @@
-from cryptography.hazmat.primitives.serialization import Encoding
 import pytest
-from certificate_analyzer.infrastructure.certificates.x509_parser import X509Parser
+from cryptography.hazmat.primitives.serialization import Encoding
+
 from certificate_analyzer.application.services.certificate_service import (
     CertificateAnalyzerCore,
 )
+from certificate_analyzer.infrastructure.certificates.x509_parser import X509Parser
 from certificate_analyzer.infrastructure.config.settings import Settings
 
 

@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
+
 from certificate_analyzer.constants import CHECK_INTERVAL, WARNING_DAYS
 
 

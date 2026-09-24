@@ -1,6 +1,7 @@
 import logging
 import threading
 from pathlib import Path
+
 from certificate_analyzer.application.services.certificate_service import (
     CertificateAnalyzerCore,
 )

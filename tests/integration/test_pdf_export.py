@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from certificate_analyzer.infrastructure.reports.pdf_exporter import (
     PdfReportExporter,
     pdf_font,

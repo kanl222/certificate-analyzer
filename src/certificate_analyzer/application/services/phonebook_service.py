@@ -1,61 +1,108 @@
 import re
 from pathlib import Path
+
+from certificate_analyzer.domain.models.employee import Employee
 from certificate_analyzer.infrastructure.phonebook.txt_loader import TxtPhonebookLoader
 
 
-def normalize(text):
-    return " ".join(re.sub(r"[^\w\s]", "", text.casefold().replace("ё", "е")).split())
+def normalize(text: str | None) -> str:
+    """Нормализовать текст для сопоставления."""
+
+    if not text:
+        return ""
+
+    cleaned = text.casefold().replace("ё", "е")
+
+    cleaned = re.sub(
+        r"[^\w\s]",
+        "",
+        cleaned,
+    )
+
+    return " ".join(cleaned.split())
 
 
 class PhoneBook:
-    def __init__(self):
-        self.employees = []
-        self.data = []
+    """Справочник сотрудников."""
 
-    def load(self, path):
-        if Path(path).suffix.lower() == ".docx":
+    def __init__(self) -> None:
+        self._employees: list[Employee] = []
+
+    @property
+    def employees(self) -> tuple[Employee, ...]:
+        return tuple(self._employees)
+
+    def load(
+        self,
+        path: str | Path,
+    ) -> None:
+        path = Path(path)
+
+        suffix = path.suffix.lower()
+
+        if suffix == ".docx":
             from certificate_analyzer.infrastructure.phonebook.docx_loader import (
                 DocxPhonebookLoader,
             )
 
             loader = DocxPhonebookLoader()
-        else:
+
+        elif suffix in {".txt", ".csv"}:
             loader = TxtPhonebookLoader()
-        employees = loader.load(path)
-        self.employees = employees
-        self.data = [
-            {
-                "name": e.full_name,
-                "department": e.department,
-                "cabinet": e.office,
-                "phone": ", ".join(e.phones) or "—",
-            }
-            for e in employees
-        ]
-        return True
 
-    load_from_docx = load
-    load_from_txt = load
+        else:
+            raise ValueError(f"Неподдерживаемый формат справочника: {suffix}")
 
-    def find_phone(self, cert_info):
-        office = normalize(cert_info.get("office_number", ""))
-        name = normalize(cert_info.get("subject_cn", ""))
-        department = normalize(cert_info.get("department", ""))
-        for predicate in (
-            lambda e: office and normalize(e.office or "") == office,
-            lambda e: name and normalize(e.full_name) == name,
-            lambda e: department and normalize(e.department or "") == department,
-        ):
+        self._employees = loader.load(path)
+
+    def find_phone(
+        self,
+        *,
+        office: str | None = None,
+        full_name: str | None = None,
+        department: str | None = None,
+    ) -> str | None:
+        """Найти телефон сотрудника."""
+
+        normalized_office = normalize(office)
+        normalized_name = normalize(full_name)
+        normalized_department = normalize(department)
+
+        predicates = (
+            lambda e: (normalized_office and normalize(e.office) == normalized_office),
+            lambda e: (normalized_name and normalize(e.full_name) == normalized_name),
+            lambda e: (
+                normalized_department
+                and normalize(e.department) == normalized_department
+            ),
+        )
+
+        for predicate in predicates:
             phones = {
-                p
-                for e in self.employees
-                if predicate(e)
-                for p in e.phones
-                if re.search(r"\d", p)
-                and not any(v in p.lower() for v in ("@", "http", "mail"))
+                phone
+                for employee in self._employees
+                if predicate(employee)
+                for phone in employee.phones
+                if self._is_valid_phone(phone)
             }
+
             if phones:
                 return ", ".join(sorted(phones))
-        return "—"
 
-    get_phone_for_cert = find_phone
+        return None
+
+    @staticmethod
+    def _is_valid_phone(phone: str) -> bool:
+        if not re.search(r"\d", phone):
+            return False
+
+        value = phone.casefold()
+
+        return not any(
+            forbidden in value
+            for forbidden in (
+                "@",
+                "http",
+                "mail",
+            )
+        )

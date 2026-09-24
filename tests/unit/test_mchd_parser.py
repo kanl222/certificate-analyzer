@@ -1,8 +1,9 @@
 import pytest
 from defusedxml.common import DefusedXmlException
+
 from certificate_analyzer.infrastructure.mchd.xml_parser import (
-    MchdXmlParser,
     MCHDParser,
+    MchdXmlParser,
 )
 
 

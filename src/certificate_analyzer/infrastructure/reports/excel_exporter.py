@@ -1,11 +1,12 @@
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+
 from certificate_analyzer.infrastructure.reports.rows import (
     HEADERS,
     model_rows,
-    values,
     output_path,
+    values,
 )
 
 

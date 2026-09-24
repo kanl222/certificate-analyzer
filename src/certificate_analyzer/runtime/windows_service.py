@@ -1,5 +1,6 @@
 import sys
-from certificate_analyzer.constants import SERVICE_NAME, SERVICE_DISPLAY_NAME
+
+from certificate_analyzer.constants import SERVICE_DISPLAY_NAME, SERVICE_NAME
 
 
 def require_windows():
@@ -10,8 +11,9 @@ def require_windows():
 
 
 if sys.platform == "win32":
-    import win32serviceutil
     import win32service
+    import win32serviceutil
+
     from certificate_analyzer.runtime.worker import MonitoringWorker
 
     class CertificateAnalyzerService(win32serviceutil.ServiceFramework):

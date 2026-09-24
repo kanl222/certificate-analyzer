@@ -1,10 +1,10 @@
+import tkinter as tk
+from datetime import UTC, datetime
+from tkinter import messagebox, ttk
+
 from certificate_analyzer.infrastructure.persistence.notification_history import (
     NotificationHistoryStore,
 )
-from certificate_analyzer.presentation.gui.widgets.toast import ToastNotification
-import tkinter as tk
-from tkinter import ttk, messagebox
-from datetime import datetime
 from certificate_analyzer.presentation.gui.styles import (
     ACCENT_COLOR,
     BG_COLOR,
@@ -13,10 +13,11 @@ from certificate_analyzer.presentation.gui.styles import (
     EXPIRED_TEXT,
     NORMAL_COLOR,
     NORMAL_TEXT,
+    UI_FONT,
     WARNING_COLOR,
     WARNING_TEXT,
-    UI_FONT,
 )
+from certificate_analyzer.presentation.gui.widgets.toast import ToastNotification
 
 
 class NotificationHistory:
@@ -28,7 +29,7 @@ class NotificationHistory:
 
     def add_notification(self, message, notification_type="info"):
         notification = {
-            "time": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+            "time": datetime.now(UTC).strftime("%d.%m.%Y %H:%M:%S"),
             "message": message,
             "type": notification_type,
         }
