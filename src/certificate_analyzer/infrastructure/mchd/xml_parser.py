@@ -1,180 +1,126 @@
-"""Парсер XML файлов машиночитаемой доверенности (МЧД)."""
+"""Namespace-aware parser for the legacy МЧД formats (attributes and elements)."""
 
-import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
-from typing import Optional, List
-
+from datetime import datetime
+from defusedxml import ElementTree as ET
+from defusedxml.common import DefusedXmlException
 from certificate_analyzer.domain.models.mchd import MchdDocument
-from certificate_analyzer.domain.enums.mchd_status import MchdStatus
+from certificate_analyzer.domain.services.mchd_status import mchd_status
+
+
+def local_name(tag):
+    return tag.rsplit("}", 1)[-1]
+
+
+def find(node, name):
+    return (
+        next((e for e in node.iter() if local_name(e.tag) == name), None)
+        if node is not None
+        else None
+    )
+
+
+def value(node, *names):
+    if node is None:
+        return ""
+    for name in names:
+        for elem in node.iter():
+            if name in elem.attrib:
+                return elem.attrib[name].strip()
+            if local_name(elem.tag) == name and elem.text:
+                return elem.text.strip()
+    return ""
+
+
+def parse_date(text):
+    for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d.%m.%y"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"Некорректная или отсутствующая дата МЧД: {text!r}")
+
+
+def fio(node):
+    elem = find(node, "ФИО")
+    return (
+        " ".join(
+            elem.get(k, "").strip()
+            for k in ("Фамилия", "Имя", "Отчество")
+            if elem.get(k, "").strip()
+        )
+        if elem is not None
+        else ""
+    )
 
 
 class MchdXmlParser:
-    """Парсер для извлечения данных из XML-файлов МЧД.
-    
-    Использует встроенную библиотеку xml.etree.ElementTree для безопасного
-    разбора структуры документа, без использования регулярных выражений.
-    """
-
-    def parse(self, xml_path: str) -> Optional[MchdDocument]:
-        """Парсит XML-файл МЧД и возвращает объект MchdDocument.
-
-        Args:
-            xml_path: Путь к XML-файлу для парсинга.
-
-        Returns:
-            Объект MchdDocument, если парсинг успешен, иначе None.
-        """
-        try:
-            tree = ET.parse(xml_path)
-            root = tree.getroot()
-        except (ET.ParseError, FileNotFoundError, OSError):
-            return None
-
-        def find_element(node: ET.Element, name: str) -> Optional[ET.Element]:
-            """Ищет первый элемент с заданным именем, игнорируя пространства имен."""
-            for elem in node.iter():
-                if elem.tag.endswith(name):
-                    return elem
-            return None
-
-        def find_all_elements(node: ET.Element, name: str) -> List[ET.Element]:
-            """Ищет все элементы с заданным именем, игнорируя пространства имен."""
-            return [elem for elem in node.iter() if elem.tag.endswith(name)]
-
-        # 1. Извлечение номера МЧД
-        unified_number = ""
-        internal_number = None
-
-        sv_dov = find_element(root, "СвДов")
-        if sv_dov is not None:
-            unified_number = sv_dov.get("НомДовер", "")
-            internal_number = sv_dov.get("ВнНомДовер")
-        
-        if not unified_number:
-            nom_dover_elem = find_element(root, "НомДовер")
-            if nom_dover_elem is not None and nom_dover_elem.text:
-                unified_number = nom_dover_elem.text.strip()
-                
-        if not unified_number:
-            unified_number = "Не найден"
-
-        # 2. Извлечение дат
-        valid_from_str = ""
-        valid_to_str = ""
-
-        if sv_dov is not None:
-            valid_from_str = sv_dov.get("ДатаВыдДовер", "")
-            valid_to_str = sv_dov.get("СрокДейст", "")
-
-        if not valid_from_str:
-            elem = find_element(root, "ДатаВыдДовер")
-            if elem is not None and elem.text:
-                valid_from_str = elem.text.strip()
-
-        if not valid_to_str:
-            elem = find_element(root, "СрокДейст")
-            if elem is not None and elem.text:
-                valid_to_str = elem.text.strip()
-                
-        valid_from = self._parse_date(valid_from_str) if valid_from_str else datetime.now()
-        valid_to = self._parse_date(valid_to_str) if valid_to_str else datetime.now()
-
-        # 3. Доверитель (Principal)
-        principal_inn = "Не найден"
-        principal_name = "Не найдено"
-        org_elem = find_element(root, "СвРосОрг")
-        if org_elem is not None:
-            principal_inn = org_elem.get("ИННЮЛ", principal_inn)
-            principal_name = org_elem.get("НаимОрг", principal_name)
-
-        # 4. Представитель (Representative)
-        representative_inn = "Не найден"
-        representative_snils = "Не найден"
-        representative_fio = "Не найдено"
-
-        # Поиск представителя в СвУпПред
-        for sv_up_pred in find_all_elements(root, "СвУпПред"):
-            if sv_up_pred.get("ТипПред") == "3":
-                sved_fiz_l = find_element(sv_up_pred, "СведФизЛ")
-                if sved_fiz_l is not None:
-                    representative_inn = sved_fiz_l.get("ИННФЛ", representative_inn)
-                    representative_snils = sved_fiz_l.get("СНИЛС", representative_snils)
-                elif sv_up_pred.get("СНИЛС"):
-                    representative_snils = sv_up_pred.get("СНИЛС", representative_snils)
-
-                fio_elem = find_element(sv_up_pred, "ФИО")
-                if fio_elem is not None:
-                    representative_fio = self._format_fio(fio_elem)
-                break
-
-        # Запасной вариант поиска представителя
-        if representative_fio == "Не найдено":
-            person_elem = find_element(root, "ЛицоБезДов")
-            if person_elem is not None:
-                svfl = find_element(person_elem, "СвФЛ")
-                if svfl is not None:
-                    representative_inn = svfl.get("ИННФЛ", representative_inn)
-                    representative_snils = svfl.get("СНИЛС", representative_snils)
-                fio_elem = find_element(person_elem, "ФИО")
-                if fio_elem is not None:
-                    representative_fio = self._format_fio(fio_elem)
-
-        # 5. Полномочия
-        authority_codes = set()
+    def parse(self, xml_path):
+        root = ET.parse(xml_path).getroot()
+        number = value(root, "НомДовер", "DocumentId")
+        if not number:
+            raise ValueError("Отсутствует номер МЧД")
+        start = parse_date(value(root, "ДатаВыдДовер", "IssueDate"))
+        end = parse_date(value(root, "СрокДейст", "ExpiryDate"))
+        if end < start:
+            raise ValueError("Дата окончания МЧД раньше даты выдачи")
+        representative = next(
+            (
+                e
+                for e in root.iter()
+                if local_name(e.tag) == "СвУпПред" and e.get("ТипПред") == "3"
+            ),
+            None,
+        )
+        org = find(root, "СвРосОрг")
+        issuer = find(root, "ЛицоБезДов")
+        codes = {}
         for elem in root.iter():
-            code = elem.get("КодПолн")
+            code = elem.get("КодПолн", "").strip()
             if code:
-                authority_codes.add(code)
-
-        # 6. Статус
-        now = datetime.now()
-        status = MchdStatus.ACTIVE
-        if valid_to < now:
-            status = MchdStatus.EXPIRED
-        elif (valid_to - now) <= timedelta(days=60):
-            status = MchdStatus.EXPIRING_SOON
-
+                codes[code] = elem.get("НаимПолн", "")
+        details = {
+            "birth_date": value(representative, "ДатаРожд"),
+            "issuer_org_kpp": value(org, "КПП"),
+            "issuer_org_ogrn": value(org, "ОГРН"),
+            "issuer_org_address": value(org, "АдрРФ"),
+            "issuer_person_fullname": fio(issuer),
+            "issuer_person_inn": value(issuer, "ИННФЛ"),
+            "issuer_person_snils": value(issuer, "СНИЛС"),
+            "issuer_person_position": value(issuer, "Должность"),
+            "issuer_person_birthdate": value(issuer, "ДатаРожд"),
+        }
         return MchdDocument(
-            unified_number=unified_number,
-            internal_number=internal_number,
-            principal_inn=principal_inn,
-            principal_name=principal_name,
-            representative_inn=representative_inn,
-            representative_fio=representative_fio,
-            representative_snils=representative_snils,
-            valid_from=valid_from,
-            valid_to=valid_to,
-            status=status,
-            authority_codes=list(authority_codes)
+            unified_number=number,
+            internal_number=value(root, "ВнНомДовер") or None,
+            principal_inn=value(org, "ИННЮЛ"),
+            principal_name=value(org, "НаимОрг"),
+            representative_inn=value(representative, "ИННФЛ"),
+            representative_fio=fio(representative),
+            representative_snils=value(representative, "СНИЛС"),
+            valid_from=start,
+            valid_to=end,
+            status=mchd_status(end),
+            authority_codes=sorted(codes),
         )
 
-    def _parse_date(self, date_str: str) -> datetime:
-        """Парсит строку с датой в объект datetime.
 
-        Args:
-            date_str: Строка с датой.
+class MCHDParser:
+    """Dictionary adapter for the migrated desktop interface."""
 
-        Returns:
-            Объект datetime. Возвращает текущее время при ошибке парсинга.
-        """
-        date_str = date_str.strip()
-        for fmt in ['%d.%m.%Y', '%Y-%m-%d', '%d.%m.%y']:
-            try:
-                return datetime.strptime(date_str, fmt)
-            except ValueError:
-                continue
-        return datetime.now()
+    @staticmethod
+    def parse_file(file_path):
+        from certificate_analyzer.application.dto.mchd_dto import mchd_to_dict
 
-    def _format_fio(self, fio_elem: ET.Element) -> str:
-        """Формирует строку ФИО из XML элемента.
-
-        Args:
-            fio_elem: XML элемент ФИО.
-
-        Returns:
-            Строка с полным именем.
-        """
-        last_name = fio_elem.get("Фамилия", "").strip()
-        first_name = fio_elem.get("Имя", "").strip()
-        middle_name = fio_elem.get("Отчество", "").strip()
-        return " ".join(filter(None, [last_name, first_name, middle_name]))
+        try:
+            model = MchdXmlParser().parse(file_path)
+            return mchd_to_dict(model)
+        except (ValueError, OSError, ET.ParseError, DefusedXmlException) as exc:
+            return {
+                "file_name": str(file_path),
+                "file_type": "МЧД",
+                "status": "Ошибка парсинга",
+                "color": "#e57373",
+                "error": str(exc),
+                "authority_codes": [],
+                "authority_names": [],
+            }

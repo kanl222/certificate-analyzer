@@ -1,6 +1,7 @@
 """Модуль для парсинга сертификатов X.509."""
 
 from pathlib import Path
+import re
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
@@ -51,7 +52,8 @@ class X509Parser:
 
         cert = cls._load_certificate(cert_data)
 
-        return cls._create_model(cert)
+        model = cls._create_model(cert)
+        return model
 
     @staticmethod
     def _read_source(
@@ -67,9 +69,7 @@ class X509Parser:
 
             return path.read_bytes()
 
-        raise TypeError(
-            "cert_source должен иметь тип bytes, str или Path"
-        )
+        raise TypeError("cert_source должен иметь тип bytes, str или Path")
 
     @staticmethod
     def _load_certificate(
@@ -84,16 +84,12 @@ class X509Parser:
             try:
                 return x509.load_pem_x509_certificate(cert_data)
             except ValueError as exc:
-                raise ValueError(
-                    "Не удалось распарсить PEM сертификат"
-                ) from exc
+                raise ValueError("Не удалось распарсить PEM сертификат") from exc
 
         try:
             return x509.load_der_x509_certificate(cert_data)
         except ValueError as exc:
-            raise ValueError(
-                "Не удалось распарсить DER сертификат"
-            ) from exc
+            raise ValueError("Не удалось распарсить DER сертификат") from exc
 
     @staticmethod
     def _create_model(
@@ -101,24 +97,37 @@ class X509Parser:
     ) -> Certificate:
         """Преобразовать X.509 Certificate в доменную модель."""
 
-        fingerprint = (
-            cert
-            .fingerprint(hashes.SHA256())
-            .hex()
-            .upper()
-        )
+        fingerprint = cert.fingerprint(hashes.SHA256()).hex().upper()
 
-        subject = X509Parser._get_common_name(
-            cert.subject
-        )
+        subject = X509Parser._get_common_name(cert.subject)
 
-        issuer = X509Parser._get_common_name(
-            cert.issuer
-        )
+        issuer = X509Parser._get_common_name(cert.issuer)
 
         serial_number = format(
             cert.serial_number,
             "X",
+        )
+        
+        email = ", ".join(
+            str(a.value)
+            for a in cert.subject.get_attributes_for_oid(NameOID.EMAIL_ADDRESS)
+        )
+        office = ", ".join(
+            str(a.value)
+            for a in cert.subject.get_attributes_for_oid(NameOID.ORGANIZATIONAL_UNIT_NAME)
+            if re.search(r"\d", str(a.value))
+        )
+        department = ", ".join(
+            str(a.value)
+            for a in cert.subject.get_attributes_for_oid(NameOID.ORGANIZATIONAL_UNIT_NAME)
+            if not re.search(r"\d", str(a.value))
+        )
+
+        from certificate_analyzer.domain.models.employee import Employee
+        employee = Employee(
+            full_name=subject,
+            department=department if department else None,
+            office=office if office else None,
         )
 
         return Certificate(
@@ -129,7 +138,8 @@ class X509Parser:
             valid_to=cert.not_valid_after_utc,
             serial_number=serial_number,
             has_private_key_link=False,
-            owner_name=None,
+            owner_name=subject,
+            employee=employee,
         )
 
     @staticmethod
@@ -138,9 +148,7 @@ class X509Parser:
     ) -> str:
         """Получить CN либо полное X.509 имя."""
 
-        attributes = name.get_attributes_for_oid(
-            NameOID.COMMON_NAME
-        )
+        attributes = name.get_attributes_for_oid(NameOID.COMMON_NAME)
 
         if attributes:
             return str(attributes[0].value)

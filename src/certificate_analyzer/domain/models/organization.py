@@ -1,9 +1,9 @@
 """Доменная модель организации."""
 
-from dataclasses import dataclass, field
-from typing import List, Optional
+from dataclasses import dataclass
 
 
 @dataclass(slots=True)
 class Organization:
     """Доменная модель организации."""
+    

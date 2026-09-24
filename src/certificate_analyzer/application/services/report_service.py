@@ -1,27 +1,17 @@
-"""Прикладной сервис генерации отчетов."""
+class ReportService:
+    def export(self, format, certificates, mchds, output_path):
+        if format == "xlsx":
+            from certificate_analyzer.infrastructure.reports.excel_exporter import (
+                ExcelReportExporter,
+            )
 
-from typing import Protocol, List
-from certificate_analyzer.domain.models.certificate import Certificate
-from certificate_analyzer.domain.models.mchd import MchdDocument
+            exporter = ExcelReportExporter()
+        elif format == "pdf":
+            from certificate_analyzer.infrastructure.reports.pdf_exporter import (
+                PdfReportExporter,
+            )
 
-
-class ReportExporter(Protocol):
-    """Абстрактный экспортер отчетов, используемый Application-слоем."""
-
-    def export(
-        self,
-        certificates: List[Certificate],
-        mchd_list: List[MchdDocument],
-        output_path: str,
-    ) -> str:
-        """Формирует отчет и сохраняет его по указанному пути.
-        
-        Args:
-            certificates: Сертификаты.
-            mchd_list: Доверенности.
-            output_path: Путь файла.
-            
-        Returns:
-            Итоговый путь к файлу.
-        """
-        ...
+            exporter = PdfReportExporter()
+        else:
+            raise ValueError(f"Неизвестный формат отчета: {format}")
+        return exporter.export(certificates, mchds, str(output_path))

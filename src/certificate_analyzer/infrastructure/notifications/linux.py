@@ -20,6 +20,8 @@ class LinuxDesktopNotifier(NotificationBackend):
         try:
             subprocess.run(["notify-send", title, message], check=False)
         except FileNotFoundError:
-            logger.warning("Утилита notify-send не найдена. Сообщение: [%s] %s", title, message)
+            logger.warning(
+                "Утилита notify-send не найдена. Сообщение: [%s] %s", title, message
+            )
         except Exception as e:
             logger.error("Ошибка отправки notify-send: %s", e)
