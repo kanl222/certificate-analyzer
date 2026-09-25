@@ -278,3 +278,81 @@ def test_import_crosses_batch_boundary(application, certificate_file, tmp_path):
         assert (
             db.execute("SELECT count(*) FROM certificate_sources").fetchone()[0] == 205
         )
+
+
+def test_delete_records_preserves_file_and_logs_audit(
+    application, certificate_file
+):
+    """Проверяет, что удаление из учета оставляет файл на диске и пишет событие в аудит."""
+    source = certificate_file("test_del_rec.pem")
+    res = application.certificates.import_files([source])
+    assert res.imported == 1
+    cert = res.certificates[0]
+    stored_file = Path(cert.source_path)
+    assert stored_file.is_file()
+
+    # Удаляем из учета
+    deleted_count = application.certificates.delete_records([cert.fingerprint_sha256])
+    assert deleted_count == 1
+    with pytest.raises(ValueError):
+        application.certificates.get(cert.fingerprint_sha256)
+
+    # Физический файл должен остаться на диске!
+    assert stored_file.is_file()
+
+    # Проверяем аудит
+    events = application.audit.list_events(limit=5)
+    actions = [e.event_type for e in events]
+    assert "RECORD_DELETED" in actions
+    del_event = next(e for e in events if e.event_type == "RECORD_DELETED")
+    assert del_event.entity_id == cert.fingerprint_sha256
+
+
+def test_delete_physical_file_moves_to_trash_and_logs_audit(
+    application, certificate_file
+):
+    """Проверяет перемещение физического файла в корзину и логирование аудита."""
+    source = certificate_file("test_del_file.pem")
+    res = application.certificates.import_files([source])
+    assert res.imported == 1
+    cert = res.certificates[0]
+    stored_file = Path(cert.source_path)
+    assert stored_file.is_file()
+
+    with patch.object(
+        application.platform, "move_to_trash", return_value=True
+    ) as mock_trash:
+        deleted, deleted_path = application.certificates.delete_file(
+            cert.fingerprint_sha256, move_to_trash=True
+        )
+        assert deleted is True
+        assert deleted_path == str(stored_file)
+        mock_trash.assert_called_once_with(str(stored_file))
+
+    events = application.audit.list_events(limit=5)
+    actions = [e.event_type for e in events]
+    assert "FILE_DELETED" in actions
+    del_event = next(e for e in events if e.event_type == "FILE_DELETED")
+    assert del_event.entity_id == cert.fingerprint_sha256
+    assert del_event.details.get("path") == str(stored_file)
+
+
+def test_open_and_reveal_file(application, certificate_file):
+    """Проверяет открытие файла и показ в проводнике через PlatformFileManager."""
+    source = certificate_file("test_open_reveal.pem")
+    res = application.certificates.import_files([source])
+    cert = res.certificates[0]
+    stored_file = Path(cert.source_path)
+
+    with patch.object(
+        application.platform, "open_file", return_value=True
+    ) as mock_open:
+        application.certificates.open_file(cert.fingerprint_sha256)
+        mock_open.assert_called_once_with(str(stored_file))
+
+    with patch.object(
+        application.platform, "reveal_file", return_value=True
+    ) as mock_reveal:
+        application.certificates.reveal_file(cert.fingerprint_sha256)
+        mock_reveal.assert_called_once_with(str(stored_file))
+

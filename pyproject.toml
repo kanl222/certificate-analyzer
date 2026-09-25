@@ -27,6 +27,16 @@ dev = ["pytest>=8", "ruff>=0.9"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 
+[tool.ruff]
+exclude = [
+    "legacy",
+    ".venv",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501", "E731", "W291", "W292", "W293"]
+
 [project.scripts]
 certificate-analyzer = "certificate_analyzer:main"
 

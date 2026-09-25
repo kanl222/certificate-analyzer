@@ -1,10 +1,11 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base
 
 if TYPE_CHECKING:
+    from .certificate_requests import CertificateRequestModel
     from .employees import EmployeeModel
 
 
@@ -22,6 +23,12 @@ class CertificateModel(Base):
     source_path: Mapped[str | None] = mapped_column(Text)
     employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"))
     employee: Mapped["EmployeeModel"] = relationship(back_populates="certificates")
+    requests: Mapped[list["CertificateRequestModel"]] = relationship(
+        back_populates="certificate"
+    )
+    sources: Mapped[list["CertificateSourceModel"]] = relationship(
+        back_populates="certificate", cascade="all, delete-orphan"
+    )
     email: Mapped[str] = mapped_column(Text, default="")
     office: Mapped[str] = mapped_column(Text, default="")
     department: Mapped[str] = mapped_column(Text, default="")
@@ -36,4 +43,14 @@ class CertificateSourceModel(Base):
     fingerprint: Mapped[str] = mapped_column(
         ForeignKey("certificates.fingerprint_sha256", ondelete="CASCADE"), index=True
     )
-    content_sha256: Mapped[str] = mapped_column(String(64))
+    content_sha256: Mapped[str] = mapped_column(String(64), default="")
+    file_name: Mapped[str | None] = mapped_column(String(255), default="")
+    size: Mapped[int | None] = mapped_column(Integer, default=0)
+    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
+
+    certificate: Mapped["CertificateModel"] = relationship(back_populates="sources")
+
+
+CertificateFileModel = CertificateSourceModel
+

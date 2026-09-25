@@ -114,13 +114,21 @@ class CertificateRepository:
                 )
             if sources:
                 statement = insert(Source)
+                source_keys = set(sources[0].keys())
+                source_updates = {
+                    "fingerprint": statement.excluded.fingerprint,
+                    "content_sha256": statement.excluded.content_sha256,
+                }
+                if "file_name" in source_keys:
+                    source_updates["file_name"] = statement.excluded.file_name
+                if "size" in source_keys:
+                    source_updates["size"] = statement.excluded.size
+                if "last_seen_at" in source_keys:
+                    source_updates["last_seen_at"] = statement.excluded.last_seen_at
                 session.execute(
                     statement.on_conflict_do_update(
                         index_elements=["path"],
-                        set_={
-                            "fingerprint": statement.excluded.fingerprint,
-                            "content_sha256": statement.excluded.content_sha256,
-                        },
+                        set_=source_updates,
                     ),
                     list(sources),
                 )

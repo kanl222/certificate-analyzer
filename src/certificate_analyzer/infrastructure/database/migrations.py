@@ -1,16 +1,26 @@
-"""Additive migrations for the existing SQLAlchemy tables."""
+"""Аддитивные миграции схемы базы данных SQLite."""
 
 import json
+from pathlib import Path
 import sqlite3
 from datetime import datetime, timezone
-from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
+
 
 
 def migrate(engine, path):
+    """Выполняет последовательные аддитивные миграции структуры SQLite-базы данных.
+
+    Args:
+        engine: Экземпляр SQLAlchemy Engine.
+        path: Путь к файлу базы данных SQLite.
+
+    Raises:
+        ValueError: Если версия базы данных новее версии приложения.
+    """
     with engine.connect() as connection:
-        version = connection.exec_driver_sql("PRAGMA user_version").scalar()
+        version = connection.exec_driver_sql("PRAGMA user_version").scalar() or 0
         if version > SCHEMA_VERSION:
             raise ValueError("Версия базы новее приложения")
         if version == SCHEMA_VERSION:
@@ -20,24 +30,24 @@ def migrate(engine, path):
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).scalars()
         )
+
     if "certificates" in tables:
         backup = path.with_name(
             path.name + datetime.now(timezone.utc).strftime(".%Y%m%d%H%M%S%f.bak")
         )
-        # SQLite backup API copies a consistent snapshot, including WAL.
+        # SQLite backup API копирует консистентный снимок данных, включая журнал WAL
         with sqlite3.connect(path) as source, sqlite3.connect(backup) as destination:
             source.backup(destination)
+
     with engine.connect() as connection:
         connection.exec_driver_sql("BEGIN IMMEDIATE")
         try:
-            # Another process may have migrated while we waited for the lock.
-            if (
-                connection.exec_driver_sql("PRAGMA user_version").scalar()
-                == SCHEMA_VERSION
-            ):
+            current_version = connection.exec_driver_sql("PRAGMA user_version").scalar() or 0
+            if current_version == SCHEMA_VERSION:
                 connection.commit()
                 return
-            if "certificates" in tables:
+
+            if current_version < 1 and "certificates" in tables:
                 columns = {
                     r[1]
                     for r in connection.exec_driver_sql(
@@ -96,6 +106,67 @@ def migrate(engine, path):
                 connection.exec_driver_sql(
                     "CREATE INDEX IF NOT EXISTS ix_certificates_subject ON certificates(subject)"
                 )
+
+            if current_version < 2 and "employees" in tables:
+                emp_cols = {
+                    r[1]
+                    for r in connection.exec_driver_sql(
+                        "PRAGMA table_info(employees)"
+                    )
+                }
+                for name, definition in {
+                    "position": "VARCHAR(255)",
+                    "inn": "VARCHAR(20)",
+                    "snils": "VARCHAR(20)",
+                    "birth_date": "DATE",
+                }.items():
+                    if name not in emp_cols:
+                        connection.exec_driver_sql(
+                            f"ALTER TABLE employees ADD COLUMN {name} {definition}"
+                        )
+
+            if current_version < 3:
+                if "certificate_sources" in tables:
+                    source_cols = {
+                        r[1]
+                        for r in connection.exec_driver_sql(
+                            "PRAGMA table_info(certificate_sources)"
+                        )
+                    }
+                    for name, definition in {
+                        "file_name": "VARCHAR(255) DEFAULT ''",
+                        "size": "INTEGER DEFAULT 0",
+                        "first_seen_at": "TIMESTAMP",
+                        "last_seen_at": "TIMESTAMP",
+                    }.items():
+                        if name not in source_cols:
+                            connection.exec_driver_sql(
+                                f"ALTER TABLE certificate_sources ADD COLUMN {name} {definition}"
+                            )
+                connection.exec_driver_sql(
+                    """CREATE TABLE IF NOT EXISTS audit_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        event_type VARCHAR(50) NOT NULL,
+                        entity_type VARCHAR(50) NOT NULL,
+                        entity_id VARCHAR(255) NOT NULL,
+                        description TEXT NOT NULL,
+                        details_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TIMESTAMP NOT NULL
+                    )"""
+                )
+                connection.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_audit_events_event_type ON audit_events(event_type)"
+                )
+                connection.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_audit_events_entity_type ON audit_events(entity_type)"
+                )
+                connection.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_audit_events_entity_id ON audit_events(entity_id)"
+                )
+                connection.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_audit_events_created_at ON audit_events(created_at)"
+                )
+
             connection.exec_driver_sql(f"PRAGMA user_version={SCHEMA_VERSION}")
             connection.commit()
         except Exception:

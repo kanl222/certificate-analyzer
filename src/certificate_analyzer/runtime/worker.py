@@ -17,7 +17,7 @@ class MonitoringWorker:
         self.app = application or create_application(settings=settings)
         self._owns_application = application is None
         self.settings = self.app.settings
-        self.notifier = notifier or PushNotificationManager()
+        self.notifier = notifier or self.app.notifications or PushNotificationManager()
         self.stop_event = threading.Event()
         self.errors = {}
 

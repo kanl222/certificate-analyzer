@@ -1,10 +1,11 @@
 """Доменная модель цифрового сертификата."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
+    from certificate_analyzer.domain.models.certificate_file import CertificateFile
     from certificate_analyzer.domain.models.employee import Employee
 
 from certificate_analyzer.domain.enums.certificate_status import CertificateStatus
@@ -31,3 +32,4 @@ class Certificate:
     source_path: str = ""
     email: str = ""
     original_name: str = ""
+    files: list["CertificateFile"] = field(default_factory=list)
