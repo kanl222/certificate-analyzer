@@ -7,6 +7,27 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
 
+@pytest.fixture(autouse=True)
+def isolated_profile(tmp_path, monkeypatch):
+    monkeypatch.setenv("CERTIFICATE_ANALYZER_HOME", str(tmp_path / "profile"))
+
+
+@pytest.fixture
+def application(tmp_path):
+    from certificate_analyzer.bootstrap import create_application
+    from certificate_analyzer.infrastructure.config.settings import Settings
+
+    with create_application(
+        settings=Settings(
+            folders={},
+            database_path=str(tmp_path / "db" / "test.sqlite"),
+            storage_folder=str(tmp_path / "storage"),
+            export_folder=str(tmp_path / "reports"),
+        )
+    ) as app:
+        yield app
+
+
 @pytest.fixture
 def certificate_file(tmp_path):
     def create(name="cert.pem", days=90, encoding=serialization.Encoding.PEM):

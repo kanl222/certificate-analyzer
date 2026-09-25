@@ -1,239 +1,133 @@
+"""One application service for imports and database-backed certificate queries."""
+
 from dataclasses import dataclass, field
+from hashlib import sha256
 from pathlib import Path
 
-from certificate_analyzer.domain.enums.certificate_status import CertificateStatus
+from certificate_analyzer.application.dto.certificate_query import CertificateQuery
+from certificate_analyzer.domain.models.certificate import Certificate
 from certificate_analyzer.domain.services.certificate_status import certificate_status
 
 
 @dataclass
-class CertificateScanResult:
-    certificates: list = field(default_factory=list)
-    expired: list = field(default_factory=list)
-    expiring: list = field(default_factory=list)
-    active: list = field(default_factory=list)
-    errors: dict = field(default_factory=dict)
-    loaded_files: list = field(default_factory=list)
+class ImportResult:
+    certificates: list[Certificate] = field(default_factory=list)
+    errors: dict[str, str] = field(default_factory=dict)
+    imported: int = 0
+    updated: int = 0
+    skipped: int = 0
 
 
 class CertificateService:
-    """Application service для работы с сертификатами."""
-
     def __init__(
-        self,
-        *,
-        scanner,
-        parser,
-        repository,
-        phonebook_service,
-        settings,
-    ) -> None:
-        self._scanner = scanner
-        self._parser = parser
-        self._repository = repository
-        self._phonebook = phonebook_service
-        self._settings = settings
+        self, *, scanner, parser, repository, storage, phonebook_service, settings
+    ):
+        self.scanner = scanner
+        self.parser = parser
+        self.repository = repository
+        self.storage = storage
+        self.phonebook = phonebook_service
+        self.settings = settings
 
-    def scan(
-        self,
-        folder: str | Path,
-    ) -> CertificateScanResult:
-        result = CertificateScanResult()
+    def import_folder(self, folder, phonebook_path=None):
+        return self.import_files(self.scanner(folder), phonebook_path=phonebook_path)
 
-        files = self._scanner.scan(folder)
-        result.loaded_files = [str(f) for f in files]
-
-        for path in files:
+    def import_files(self, paths, phonebook_path=None):
+        result = ImportResult()
+        if phonebook_path:
+            self.phonebook.load(phonebook_path)
+        elif self.settings.phonebook_path and not self.phonebook.employees:
             try:
-                certificate = self._parse(path)
-                certificate.source_path = str(path)
-
-                self._repository.save(
-                    certificate
-                )
-
+                self.phonebook.load(self.settings.phonebook_path)
             except (OSError, ValueError) as exc:
-                result.errors[Path(path)] = str(exc)
-                continue
-
-            result.certificates.append(
-                certificate
-            )
-
-            match certificate.status:
-                case CertificateStatus.EXPIRED:
-                    result.expired.append(
-                        certificate
+                result.errors[str(self.settings.phonebook_path)] = str(exc)
+        paths = list(dict.fromkeys(str(Path(p).expanduser().resolve()) for p in paths))
+        collected = {}
+        # Bound SQL parameter counts and transaction duration for large imports.
+        for start in range(0, len(paths), 200):
+            batch = paths[start : start + 200]
+            known = self.repository.cached_sources(batch)
+            certificates, sources, fingerprints = [], [], []
+            for path in batch:
+                try:
+                    data = Path(path).read_bytes()
+                    digest = sha256(data).hexdigest()
+                    cached = known.get(path)
+                    if cached and cached[0] == digest and not self.phonebook.employees:
+                        stored = Path(cached[1])
+                        if (
+                            stored.parent == self.storage.folder
+                            and stored.is_file()
+                            and sha256(stored.read_bytes()).hexdigest().upper()
+                            == cached[2]
+                        ):
+                            result.skipped += 1
+                            fingerprints.append(cached[2])
+                            continue
+                    cert, der = self.parser.parse_for_import(data)
+                    cert.status = certificate_status(
+                        cert.valid_from,
+                        cert.valid_to,
+                        warning_days=self.settings.warning_days,
                     )
-
-                case CertificateStatus.EXPIRING_SOON:
-                    result.expiring.append(
-                        certificate
+                    cert.original_name = Path(path).name
+                    cert.source_path = str(
+                        self.storage.put(cert.fingerprint_sha256, der)
                     )
-
-                case CertificateStatus.ACTIVE:
-                    result.active.append(
-                        certificate
+                    self._enrich(cert)
+                    certificates.append(cert)
+                    sources.append(
+                        {
+                            "path": path,
+                            "fingerprint": cert.fingerprint_sha256,
+                            "content_sha256": digest,
+                        }
                     )
-
+                    fingerprints.append(cert.fingerprint_sha256)
+                except (ValueError, OSError) as exc:
+                    result.errors[path] = str(exc)
+            inserted = self.repository.save_many(certificates, sources)
+            result.imported += inserted
+            result.updated += len(certificates) - inserted
+            for cert in self.repository.find_many(list(dict.fromkeys(fingerprints))):
+                collected[cert.fingerprint_sha256] = cert
+        result.certificates = list(collected.values())
         return result
 
-    def _parse(
-        self,
-        path: str | Path,
-    ):
-        certificate = self._parser.parse(path)
-
-        certificate.status = certificate_status(
-            certificate.valid_from,
-            certificate.valid_to,
-            warning_days=self._settings.warning_days,
-        )
-
-        self._enrich_employee(
-            certificate
-        )
-
-        return certificate
-
-    def _enrich_employee(
-        self,
-        certificate,
-    ) -> None:
-        employee = certificate.employee
-
-        if employee is None:
+    def _enrich(self, cert):
+        if not cert.employee:
             return
-
-        phone = self._phonebook.find_phone(
-            office=employee.office,
-            full_name=employee.full_name,
-            department=employee.department,
+        phone = self.phonebook.find_phone(
+            office=cert.employee.office,
+            full_name=cert.employee.full_name,
+            department=cert.employee.department,
         )
+        if phone:
+            cert.employee.phones = [p.strip() for p in phone.split(",") if p.strip()]
 
-        if (
-            phone
-            and phone != "—"
-            and phone not in employee.phones
-        ):
-            employee.phones.append(phone)
+    def load_phonebook(self, path):
+        self.phonebook.load(path)
+        # Enrich existing records without rereading certificate files.
+        offset = 0
+        while batch := self.repository.list(CertificateQuery(limit=200, offset=offset)):
+            for cert in batch:
+                self._enrich(cert)
+            self.repository.save_many(batch)
+            offset += len(batch)
+        return len(self.phonebook.employees)
 
+    def list(self, query=None):
+        return self.repository.list(query)
 
-class CertificateAnalyzerCore:
-    """Backward-compatible facade used by tests and the legacy presenter.
+    def statistics(self, query=None):
+        return self.repository.statistics(query)
 
-    Wraps the standalone scanner and parser without requiring DI wiring.
-    """
+    def get(self, fingerprint):
+        cert = self.repository.find_by_fingerprint(fingerprint)
+        if cert is None:
+            raise ValueError("Запись сертификата не найдена")
+        return cert
 
-    def __init__(self, settings) -> None:
-        from certificate_analyzer.infrastructure.certificates.scanner import scan_files
-        from certificate_analyzer.infrastructure.certificates.x509_parser import X509Parser
-
-        self._settings = settings
-        self._scan_files = scan_files
-        self._parser = X509Parser
-
-        self._scanned_paths: list[Path] = []
-        self.certificates: list = []
-        self.errors: dict = {}
-        self.expired_certs: list = []
-        self.loaded_files: list[str] = []
-        self.cert_stats: dict = {
-            "total": 0,
-            "expired": 0,
-            "expiring": 0,
-            "active": 0,
-        }
-        self.phonebook = None
-
-    def scan_certificates(self, folder: str | Path) -> None:
-        """Scan folder and store found paths; clears previous state."""
-        self.certificates = []
-        self.errors = {}
-        self.expired_certs = []
-        self.loaded_files = []
-        self.cert_stats = {"total": 0, "expired": 0, "expiring": 0, "active": 0}
-
-        try:
-            self._scanned_paths = self._scan_files(folder)
-        except (FileNotFoundError, NotADirectoryError):
-            self._scanned_paths = []
-        self.loaded_files = [str(p) for p in self._scanned_paths]
-
-    def parse_certificates(self) -> list:
-        """Parse all previously scanned paths and return view-ready list."""
-        self.certificates = []
-        self.errors = {}
-        self.expired_certs = []
-
-        for path in self._scanned_paths:
-            try:
-                cert = self._parser.parse(path)
-                cert.status = certificate_status(
-                    cert.valid_from,
-                    cert.valid_to,
-                    warning_days=self._settings.warning_days,
-                )
-                cert.source_path = str(path)
-                self.certificates.append(cert)
-
-                match cert.status:
-                    case CertificateStatus.EXPIRED:
-                        self.expired_certs.append(cert)
-                    case _:
-                        pass
-
-            except (OSError, ValueError) as exc:
-                self.errors[path] = str(exc)
-
-        self.cert_stats = {
-            "total": len(self.certificates),
-            "expired": sum(
-                1 for c in self.certificates if c.status == CertificateStatus.EXPIRED
-            ),
-            "expiring": sum(
-                1 for c in self.certificates if c.status == CertificateStatus.EXPIRING_SOON
-            ),
-            "active": sum(
-                1 for c in self.certificates if c.status == CertificateStatus.ACTIVE
-            ),
-        }
-        return self.certificates
-
-    def load_phonebook(self, file_path: str) -> bool:
-        """Load phonebook from file. Returns True on success."""
-        from certificate_analyzer.application.services.phonebook_service import PhoneBook
-
-        try:
-            pb = PhoneBook()
-            pb.load(file_path)
-            self.phonebook = pb
-            return True
-        except Exception:  # noqa: BLE001
-            return False
-
-    def export_to_excel(self, data: list, save_path: str, title: str) -> str | None:
-        """Export data rows to Excel. Returns save_path on success."""
-        from certificate_analyzer.infrastructure.reports.excel_exporter import ExcelReportExporter
-
-        try:
-            ExcelReportExporter().export_rows(data, save_path, title)
-            return save_path
-        except Exception:  # noqa: BLE001
-            return None
-
-    def export_to_pdf(
-        self,
-        data: list,
-        save_path: str,
-        figure,
-        title: str,
-        include_chart: bool = True,
-    ) -> str | None:
-        """Export data rows to PDF. Returns save_path on success."""
-        from certificate_analyzer.infrastructure.reports.pdf_exporter import PdfReportExporter
-
-        try:
-            PdfReportExporter().export(data, save_path, figure, title, include_chart)
-            return save_path
-        except Exception:  # noqa: BLE001
-            return None
+    def delete_records(self, fingerprints):
+        # Explicitly remove metadata only. Managed files can be reimported.
+        return self.repository.delete(fingerprints)

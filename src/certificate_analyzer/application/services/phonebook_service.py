@@ -27,6 +27,7 @@ class PhoneBook:
 
     def __init__(self) -> None:
         self._employees: list[Employee] = []
+        self._indexes: tuple[dict[str, set[str]], ...] = ({}, {}, {})
 
     @property
     def employees(self) -> tuple[Employee, ...]:
@@ -54,6 +55,16 @@ class PhoneBook:
             raise ValueError(f"Неподдерживаемый формат справочника: {suffix}")
 
         self._employees = loader.load(path)
+        indexes = ({}, {}, {})
+        for employee in self._employees:
+            phones = {p for p in employee.phones if self._is_valid_phone(p)}
+            for index, value in zip(
+                indexes, (employee.office, employee.full_name, employee.department)
+            ):
+                key = normalize(value)
+                if key and phones:
+                    index.setdefault(key, set()).update(phones)
+        self._indexes = indexes
 
     def find_phone(
         self,
@@ -68,24 +79,10 @@ class PhoneBook:
         normalized_name = normalize(full_name)
         normalized_department = normalize(department)
 
-        predicates = (
-            lambda e: (normalized_office and normalize(e.office) == normalized_office),
-            lambda e: (normalized_name and normalize(e.full_name) == normalized_name),
-            lambda e: (
-                normalized_department
-                and normalize(e.department) == normalized_department
-            ),
-        )
-
-        for predicate in predicates:
-            phones = {
-                phone
-                for employee in self._employees
-                if predicate(employee)
-                for phone in employee.phones
-                if self._is_valid_phone(phone)
-            }
-
+        for index, key in zip(
+            self._indexes, (normalized_office, normalized_name, normalized_department)
+        ):
+            phones = index.get(key, set())
             if phones:
                 return ", ".join(sorted(phones))
 

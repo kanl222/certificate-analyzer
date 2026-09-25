@@ -1,790 +1,544 @@
+"""Desktop view of the shared SQLAlchemy-backed application services."""
+
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog, messagebox
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
+from datetime import date
+from pathlib import Path
 
-import matplotlib
-
-from certificate_analyzer.presentation.gui.styles import (
-    ACCENT_COLOR,
-    BG_COLOR,
-    BUTTON_COLOR,
-    BUTTON_HOVER,
-    CARD_BG_COLOR,
-    CARD_BORDER_COLOR,
-    CARD_TITLE_COLOR,
-    CARD_VALUE_COLOR,
-    EXPIRED_COLOR,
-    HEADER_COLOR,
-    MCHD_COLOR,
-    NORMAL_COLOR,
-    SIDEBAR_COLOR,
-    SIDEBAR_TEXT_COLOR,
-    TEXT_COLOR,
-    UI_FONT,
-    WARNING_COLOR,
-)
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
+from certificate_analyzer.application.dto.certificate_dto import certificate_to_dict
+from certificate_analyzer.application.dto.certificate_query import CertificateQuery
 from certificate_analyzer.bootstrap import create_application
-from certificate_analyzer.infrastructure.mchd.xml_parser import MCHDParser
-from certificate_analyzer.presentation.gui.controllers.certificate_controller import (
-    CertificateController,
+from certificate_analyzer.domain.enums.certificate_status import CertificateStatus
+from certificate_analyzer.infrastructure.config.config_loader import save_settings
+from certificate_analyzer.infrastructure.platform.base import open_path
+from certificate_analyzer.presentation.gui.styles import (
+    BG_COLOR,
+    TEXT_COLOR,
+    ACCENT_COLOR,
+    UI_FONT,
 )
-from certificate_analyzer.presentation.gui.controllers.mchd_controller import (
-    MchdController,
+from certificate_analyzer.presentation.gui.widgets.certificate_details import (
+    CertificateDetails,
 )
-from certificate_analyzer.presentation.gui.controllers.settings_controller import (
-    SettingsController,
-)
-from certificate_analyzer.presentation.gui.presenters.certificate_presenter import (
-    CertificatePresenter,
-)
-from certificate_analyzer.presentation.gui.views.certificate_view import CertificateView
-from certificate_analyzer.presentation.gui.views.history_view import NotificationHistory
-from certificate_analyzer.presentation.gui.views.normative_view import NormativeWindow
-from certificate_analyzer.presentation.gui.widgets.toast import ToastNotification
+
+STATUS_LABELS = {
+    "Все статусы": None,
+    "Активные": CertificateStatus.ACTIVE,
+    "Истекающие": CertificateStatus.EXPIRING_SOON,
+    "Просроченные": CertificateStatus.EXPIRED,
+    "Недействительные": CertificateStatus.INVALID,
+    "Отозванные": CertificateStatus.REVOKED,
+}
+COLUMNS = {
+    "subject": ("ФИО", 200),
+    "original_name": ("Файл", 180),
+    "valid_to": ("Действителен до", 120),
+    "department": ("Подразделение", 180),
+    "status": ("Статус", 140),
+    "issuer": ("Издатель", 180),
+}
 
 
-class CertificateAnalyzerApp(
-    SettingsController, CertificateController, MchdController, CertificateView
-):
-    def __init__(self, root):
+class CertificateAnalyzerApp:
+    """Widgets never own database sessions or the authoritative certificate collection."""
+
+    def __init__(self, root, application=None, config_path=None):
         self.root = root
-        self.root.title("Анализатор сертификатов и МЧД")
-        self.root.geometry("1600x900")
-        self.root.configure(bg=BG_COLOR)
-        self.current_folder_key = "📁 Сотрудники"
-        self.current_display_path = ""
-        self.recent_folders = []
-        self.setup_styles()
-        app = create_application()
-        self.core = app.certificates
-        self.core.settings = app.settings
-        self.core.loaded_files = []
-        self.core.errors = {}
-        self.core.certificates = []
-        self.certificate_presenter = CertificatePresenter(view=self, model=self.core)
-        self.default_folders = dict(self.core.settings.folders)
-        self.cert_data_cache = []
-        self.mchd_data_cache = []
-        self.mchd_parser = MCHDParser()
-        self.current_display_mode = "certificates"
-        self.search_active = False
-        self.current_search_query = ""
-        self.date_filter_active = False
-        self.date_from = None
-        self.date_to = None
-        self._notification_shown = False
-        self.chart_type = "pie"
-        self.open_windows = {}
-        self.notification_history = NotificationHistory(root)
-        self.setup_ui()
-        self.load_default_folder()
-        self.setup_folder_menu()
-        self.setup_push_notifications()
-        self.root.bind("<Configure>", self.on_window_resize)
-        self.tree.bind("<Double-1>", self.on_item_double_click)
-        if self.cal:
-            self.cal.bind("<<CalendarMonthChanged>>", self.on_month_change)
+        self.app = application or create_application(config_path)
+        self._owns_app = application is None
+        self.config_path = config_path
+        self.executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="certificate-import"
+        )
+        self.future = None
+        self.closing = False
+        self.search_after = None
+        self.refresh_after = None
+        self.offset = 0
+        self.sort = "subject"
+        self.descending = False
+        self.query = CertificateQuery()
+        self._page = {}
+        self.root.title("Хранилище сертификатов")
+        self.root.geometry("1200x760")
+        self.root.minsize(860, 540)
+        self._build_ui()
+        self.refresh()
+        self._schedule_refresh()
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
-    def close(self):
-        self.notification_manager.stop_monitoring()
-        plt.close("all")
-        self.root.destroy()
-
-    def setup_styles(self):
-        style = ttk.Style()
+    def _build_ui(self):
+        style = ttk.Style(self.root)
         style.theme_use("clam")
         style.configure(
-            ".", background=BG_COLOR, foreground=TEXT_COLOR, font=(UI_FONT, 9)
-        )
-        self.root.configure(bg=BG_COLOR)
-        style.configure("TFrame", background=BG_COLOR)
-        style.configure(
-            "TLabelFrame",
-            background=HEADER_COLOR,
-            foreground=TEXT_COLOR,
-            font=(UI_FONT, 10, "bold"),
-            borderwidth=2,
-            relief="groove",
+            ".", font=(UI_FONT, 10), background=BG_COLOR, foreground=TEXT_COLOR
         )
         style.configure(
-            "TLabelFrame.Label", background=HEADER_COLOR, foreground=TEXT_COLOR
+            "Treeview", rowheight=30, background="white", fieldbackground="white"
         )
+        style.configure("Treeview.Heading", font=(UI_FONT, 10, "bold"))
         style.configure(
-            "TButton",
-            background=BUTTON_COLOR,
-            foreground="white",
-            font=(UI_FONT, 9, "bold"),
-            borderwidth=0,
-            padding=8,
+            "Accent.TButton", background=ACCENT_COLOR, foreground="white", padding=7
         )
-        style.map(
-            "TButton",
-            background=[("active", BUTTON_HOVER), ("pressed", BUTTON_HOVER)],
-            foreground=[("active", "white")],
+        frame = ttk.Frame(self.root, padding=14)
+        frame.pack(fill="both", expand=True)
+        heading = ttk.Frame(frame)
+        heading.pack(fill="x", pady=(0, 8))
+        ttk.Label(
+            heading, text="Хранилище сертификатов", font=(UI_FONT, 17, "bold")
+        ).pack(side="left")
+        ttk.Button(heading, text="Настройки", command=self.show_settings).pack(
+            side="right"
         )
-        style.configure(
-            "Accent.TButton",
-            background=BUTTON_COLOR,
-            foreground="white",
-            font=(UI_FONT, 9, "bold"),
-            borderwidth=0,
-            padding=8,
+        ttk.Label(
+            frame,
+            text=f"Файлы: {self.app.certificates.storage.folder}",
+            wraplength=1000,
+        ).pack(anchor="w")
+        ttk.Label(frame, text=f"База: {self.app.database.path}", wraplength=1000).pack(
+            anchor="w", pady=(0, 10)
         )
-        style.map(
-            "Accent.TButton",
-            background=[("active", BUTTON_HOVER), ("pressed", BUTTON_HOVER)],
-            foreground=[("active", "white")],
-        )
-        style.configure(
-            "Danger.TButton",
-            background="#D9534F",
-            foreground="white",
-            font=(UI_FONT, 9, "bold"),
-            borderwidth=0,
-            padding=8,
-        )
-        style.map(
-            "Danger.TButton",
-            background=[("active", "#c9302c"), ("pressed", "#c9302c")],
-            foreground=[("active", "white")],
-        )
-        style.configure(
-            "Secondary.TButton",
-            background="#e0e0e0",
-            foreground="black",
-            font=(UI_FONT, 9),
-            borderwidth=0,
-            padding=8,
-        )
-        style.map(
-            "Secondary.TButton",
-            background=[("active", "#d5d5d5"), ("pressed", "#d5d5d5")],
-            foreground=[("active", "black")],
-        )
-        style.configure(
-            "Sidebar.TButton",
-            background=SIDEBAR_COLOR,
-            foreground=SIDEBAR_TEXT_COLOR,
-            font=(UI_FONT, 10),
-            borderwidth=0,
-            padding=8,
-        )
-        style.map(
-            "Sidebar.TButton",
-            background=[("active", "#34495e"), ("pressed", "#2c3e50")],
-            foreground=[("active", "white")],
-        )
-        style.configure(
-            "TEntry",
-            fieldbackground="white",
-            foreground=TEXT_COLOR,
-            insertcolor=TEXT_COLOR,
-            bordercolor="#e1e8ed",
-            borderwidth=1,
-            padding=5,
-            font=(UI_FONT, 9),
-        )
-        style.configure(
-            "Treeview",
-            background="white",
-            foreground=TEXT_COLOR,
-            fieldbackground="white",
-            rowheight=28,
-            borderwidth=0,
-            font=(UI_FONT, 9),
-        )
-        style.configure(
-            "Treeview.Heading",
-            background=ACCENT_COLOR,
-            foreground="white",
-            font=(UI_FONT, 9, "bold"),
-            borderwidth=0,
-        )
-        style.map(
-            "Treeview",
-            background=[("selected", BUTTON_COLOR)],
-            foreground=[("selected", "white")],
-        )
-        style.configure(
-            "Card.TFrame",
-            background=CARD_BG_COLOR,
-            borderwidth=1,
-            relief="solid",
-            bordercolor=CARD_BORDER_COLOR,
-        )
-        style.configure(
-            "CardTitle.TLabel",
-            font=(UI_FONT, 9),
-            foreground=CARD_TITLE_COLOR,
-            background=CARD_BG_COLOR,
-        )
-        style.configure(
-            "CardValue.TLabel",
-            font=(UI_FONT, 14),
-            foreground=CARD_VALUE_COLOR,
-            background=CARD_BG_COLOR,
-        )
-        style.configure("Sidebar.TFrame", background=SIDEBAR_COLOR)
-        style.configure(
-            "TCheckbutton",
-            background=BG_COLOR,
-            foreground=TEXT_COLOR,
-            font=(UI_FONT, 9),
-        )
-
-    def close_window(self, key, window):
-        self.open_windows[key] = None
-        window.destroy()
-
-    def show_window(self, window_key, window_class, *args, **kwargs):
-        if (
-            window_key in self.open_windows
-            and self.open_windows[window_key] is not None
+        toolbar = ttk.Frame(frame)
+        toolbar.pack(fill="x", pady=(0, 10))
+        self.import_buttons = []
+        for label, action in (
+            ("Импорт файлов", self.import_files),
+            ("Импорт папки", self.import_folder),
         ):
-            try:
-                if self.open_windows[window_key].winfo_exists():
-                    self.open_windows[window_key].lift()
-                    self.open_windows[window_key].focus_force()
-                    return self.open_windows[window_key]
-            except:
-                pass
-        window = window_class(*args, **kwargs)
-        self.open_windows[window_key] = window
-        if hasattr(window, "protocol"):
-
-            def on_close():
-                self.open_windows[window_key] = None
-                if hasattr(window, "destroy"):
-                    window.destroy()
-
-            window.protocol("WM_DELETE_WINDOW", on_close)
-        return window
-
-    def setup_ui(self):
-        main_frame = ttk.Frame(self.root, padding=10)
-        main_frame.pack(fill=tk.BOTH, expand=True)
-
-        # Sidebar
-        sidebar_frame = ttk.Frame(main_frame, width=220, style="Sidebar.TFrame")
-        sidebar_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
-        sidebar_frame.pack_propagate(False)
-
-        logo_frame = ttk.Frame(sidebar_frame, style="Sidebar.TFrame")
-        logo_frame.pack(fill=tk.X, pady=(10, 20))
-        ttk.Label(logo_frame, text="🔐", font=(UI_FONT, 28), foreground="white", background=SIDEBAR_COLOR).pack(pady=(10, 0))
-        ttk.Label(logo_frame, text="Анализатор", font=(UI_FONT, 14, "bold"), foreground="white", background=SIDEBAR_COLOR).pack()
-
-        # Navigation
-        from certificate_analyzer.presentation.gui.styles import SECONDARY_TEXT_COLOR
-        ttk.Label(sidebar_frame, text="ОСНОВНОЕ", font=(UI_FONT, 8, "bold"), foreground=SECONDARY_TEXT_COLOR, background=SIDEBAR_COLOR).pack(anchor=tk.W, padx=15, pady=(10, 5))
-        main_nav = [
-            ("📊 Обзор", lambda: None),
-            ("🪪 Сертификаты", lambda: self.switch_folder("📁 Сотрудники")),
-            ("📑 МЧД", self.scan_mchd_folder),
-            ("👥 Сотрудники", lambda: self.switch_folder("📁 Руководство")),
-            ("📈 Отчёты", self.export_menu)
-        ]
-        for text, cmd in main_nav:
-            btn = ttk.Button(sidebar_frame, text=text, command=cmd, style="Sidebar.TButton")
-            btn.pack(fill=tk.X, padx=10, pady=2, ipady=4)
-
-        ttk.Label(sidebar_frame, text="СИСТЕМА", font=(UI_FONT, 8, "bold"), foreground=SECONDARY_TEXT_COLOR, background=SIDEBAR_COLOR).pack(anchor=tk.W, padx=15, pady=(20, 5))
-        sys_nav = [
-            ("🔔 Уведомления", self.show_notification_settings),
-            ("⚙️ Настройки", self.show_folder_settings)
-        ]
-        for text, cmd in sys_nav:
-            btn = ttk.Button(sidebar_frame, text=text, command=cmd, style="Sidebar.TButton")
-            btn.pack(fill=tk.X, padx=10, pady=2, ipady=4)
-        
-        ttk.Frame(sidebar_frame, style="Sidebar.TFrame").pack(fill=tk.BOTH, expand=True) # spacer
-        
-        bottom_nav = [
-            ("📚 Нормативка", self.show_normative),
-            ("ℹ️ О программе", self.show_about),
-        ]
-        for text, cmd in bottom_nav:
-            btn = ttk.Button(sidebar_frame, text=text, command=cmd, style="Sidebar.TButton")
-            btn.pack(fill=tk.X, padx=10, pady=2, ipady=4)
-        
-        # Content Area
-        content_frame = ttk.Frame(main_frame)
-        content_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # Top Bar
-        top_bar = ttk.Frame(content_frame)
-        top_bar.pack(fill=tk.X, pady=(0, 15))
-        ttk.Label(top_bar, text="Сертификаты", font=(UI_FONT, 14, "bold")).pack(side=tk.LEFT)
-        
-        self.folder_path = tk.StringVar()
-        ttk.Entry(top_bar, textvariable=self.folder_path, width=40).pack(side=tk.LEFT, padx=(20, 10))
-        ttk.Button(top_bar, text="Выбрать", command=self.select_folder, style="Accent.TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(top_bar, text="Обновить", command=self.refresh_all, style="Accent.TButton").pack(side=tk.LEFT, padx=5)
-        
-        # Stats Cards
-        from certificate_analyzer.presentation.gui.widgets.stat_card import StatCard
-        cards_frame = ttk.Frame(content_frame)
-        cards_frame.pack(fill=tk.X, pady=(0, 15))
-        self.card_total = StatCard(cards_frame, "Всего", "0")
-        self.card_total.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 10))
-        self.card_normal = StatCard(cards_frame, "Активны", "0", NORMAL_COLOR)
-        self.card_normal.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 10))
-        self.card_warning = StatCard(cards_frame, "Истекают", "0", WARNING_COLOR)
-        self.card_warning.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 10))
-        self.card_expired = StatCard(cards_frame, "Просрочены", "0", EXPIRED_COLOR)
-        self.card_expired.pack(side=tk.LEFT, expand=True, fill=tk.X)
-
-        # Filters
-        filter_bar = ttk.Frame(content_frame)
-        filter_bar.pack(fill=tk.X, pady=(0, 10))
+            button = ttk.Button(
+                toolbar, text=label, command=action, style="Accent.TButton"
+            )
+            button.pack(side="left", padx=(0, 6))
+            self.import_buttons.append(button)
+        ttk.Button(toolbar, text="Обновить записи", command=self.refresh).pack(
+            side="left", padx=3
+        )
+        ttk.Button(toolbar, text="Отчёт", command=self.export_report).pack(
+            side="left", padx=3
+        )
+        ttk.Button(toolbar, text="Справочник", command=self.import_phonebook).pack(
+            side="left", padx=3
+        )
+        ttk.Button(toolbar, text="МЧД", command=self.open_mchd).pack(
+            side="left", padx=3
+        )
+        ttk.Button(toolbar, text="Удалить записи", command=self.delete_selected).pack(
+            side="right"
+        )
+        self.stats_label = ttk.Label(frame, font=(UI_FONT, 11, "bold"))
+        self.stats_label.pack(anchor="w", pady=(0, 12))
+        filters = ttk.Frame(frame)
+        filters.pack(fill="x", pady=(0, 10))
+        ttk.Label(filters, text="Поиск:").pack(side="left")
         self.search_var = tk.StringVar()
-        self.search_var.trace_add("write", self.on_search)
-        ttk.Entry(filter_bar, textvariable=self.search_var, width=30).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(filter_bar, text="Статус ▼", style="TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(filter_bar, text="Срок ▼", command=self.show_date_filter, style="TButton").pack(side=tk.LEFT, padx=5)
-        ttk.Button(filter_bar, text="Подразделение ▼", style="TButton").pack(side=tk.LEFT, padx=5)
-
-        ttk.Button(filter_bar, text="🗑 Удалить", command=self.delete_selected, style="Danger.TButton").pack(side=tk.RIGHT)
-
-        # Table
-        from certificate_analyzer.presentation.gui.widgets.certificate_table import (
-            CertificateTable,
+        self.search_var.trace_add("write", self._search_changed)
+        ttk.Entry(filters, textvariable=self.search_var, width=25).pack(
+            side="left", padx=5
         )
-        self.table = CertificateTable(content_frame)
-        self.table.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-        self.tree = self.table.tree
-        self.columns = self.table.columns
-
-        # Details Panel
-        from certificate_analyzer.presentation.gui.widgets.certificate_details import (
-            CertificateDetails,
+        self.status_var = tk.StringVar(value="Все статусы")
+        status = ttk.Combobox(
+            filters,
+            textvariable=self.status_var,
+            values=list(STATUS_LABELS),
+            state="readonly",
+            width=18,
         )
-        self.details_panel = CertificateDetails(content_frame)
-        self.details_panel.pack(fill=tk.X)
-        self.table.set_on_select_callback(self._on_table_select)
-
-        # Status Bar
-        status_bar = ttk.Frame(content_frame)
-        status_bar.pack(fill=tk.X, pady=(10, 0))
-        
-        self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Progressbar(status_bar, variable=self.progress_var, maximum=100)
-        
-        self.status_label = ttk.Label(status_bar, text="Готово", font=(UI_FONT, 9), foreground=SECONDARY_TEXT_COLOR)
-        self.status_label.pack(side=tk.LEFT)
-        self.search_result_label = ttk.Label(status_bar, text="", font=(UI_FONT, 9), foreground=SECONDARY_TEXT_COLOR)
-        self.search_result_label.pack(side=tk.RIGHT)
-
-        self.sort_reverse = {col: False for col in self.columns}
-        self.folder_history = []
-        
-        self.cal = None
-        self.figure_status = None
-        self.current_folder_label = tk.Label() # Dummy for compat
-
-    def _on_table_select(self, values):
-        if not values:
-            self.details_panel.clear()
-            return
-        details = {
-            "Subject": values[0],
-            "Путь": values[1],
-            "Email": values[6] if len(values) > 6 else "",
-            "Телефон": values[5] if len(values) > 5 else "",
-        }
-        self.details_panel.update_details(details)
-
-    def display_certificates(self, data_list):
-        self.table.clear()
-        if not data_list:
-            self.table.insert_row(["Сертификаты не найдены"] * len(self.columns))
-            return
-        
-        for item in data_list:
-            status = item.get("status", "")
-            tags = ()
-            if "Просрочен" in status:
-                tags = ("expired",)
-            elif "Истекает" in status:
-                tags = ("warning",)
-            elif status:
-                tags = ("normal",)
-
-            row = (
-                item.get("type", "—"),
-                item.get("file_name", "—"),
-                item.get("valid_from", "—"),
-                item.get("valid_to", "—"),
-                item.get("subject_cn", "—"),
-                item.get("serial_number", "—"),
-                item.get("email", "—"),
-                item.get("office_number", "—"),
-                item.get("department", "—"),
-                item.get("phone", "—"),
-                status,
-            )
-            # Use only the columns that match new UI
-            new_row = (
-                item.get("subject_cn", "—"),
-                item.get("file_name", "—"),
-                item.get("valid_to", "—"),
-                item.get("days_left", "—"),
-                item.get("department", "—"),
-                item.get("phone", "—"),
-                status,
-            )
-            self.table.insert_row(new_row, tags=tags)
-            
-    def update_stats_view(self, total, expired, warning, normal):
-        self.card_total.set_value(str(total))
-        self.card_expired.set_value(str(expired))
-        self.card_warning.set_value(str(warning))
-        self.card_normal.set_value(str(normal))
-        
-    def set_loaded_files(self, file_paths):
-        pass # Not using listbox in new design
-        
-    def set_search_result_text(self, text):
-        self.search_result_label.config(text=text)
-        
-    def clear_search_input(self):
-        self.search_var.set("")
-        
-    def remove_tree_items(self, item_ids):
-        for item_id in item_ids:
-            self.table.tree.delete(item_id)
-            
-    def create_tooltip(self, widget, text):
-        def show_tooltip(event):
-            tooltip = tk.Toplevel(widget)
-            tooltip.wm_overrideredirect(True)
-            tooltip.wm_geometry(f"+{event.x_root + 10}+{event.y_root + 10}")
-            frame = tk.Frame(tooltip, bg="#2c3e50", padx=8, pady=4)
-            frame.pack()
-            label = tk.Label(
-                frame,
-                text=text,
-                font=(UI_FONT, 9),
-                bg="#2c3e50",
-                fg="white",
-                wraplength=300,
-            )
-            label.pack()
-
-            def hide_tooltip():
-                tooltip.destroy()
-
-            widget.tooltip = tooltip
-            widget.after(3000, hide_tooltip)
-            widget.bind("<Leave>", lambda e: hide_tooltip())
-
-        widget.bind("<Enter>", show_tooltip)
-
-    def show_notification(self, message, notification_type="info", duration=4000):
-        try:
-            self.notification_history.add_notification(message, notification_type)
-            ToastNotification(self.root, message, duration, notification_type)
-        except Exception as e:
-            print(f"Ошибка показа уведомления: {e}")
-
-    def show_notification_history(self):
-        self.notification_history.show_history_window()
-
-    def show_normative(self):
-        self.show_window("normative", NormativeWindow, self.root)
-
-    def show_about(self):
-        if "about" in self.open_windows and self.open_windows["about"] is not None:
-            try:
-                if self.open_windows["about"].winfo_exists():
-                    self.open_windows["about"].lift()
-                    self.open_windows["about"].focus_force()
-                    return
-            except:
-                pass
-
-        about_window = tk.Toplevel(self.root)
-        about_window.title("О программе")
-        about_window.geometry("550x500")
-        about_window.configure(bg=BG_COLOR)
-        about_window.resizable(False, False)
-        about_window.update_idletasks()
-        x = (about_window.winfo_screenwidth() // 2) - (550 // 2)
-        y = (about_window.winfo_screenheight() // 2) - (500 // 2)
-        about_window.geometry(f"550x500+{x}+{y}")
-        self.open_windows["about"] = about_window
-
-        main_frame = tk.Frame(about_window, bg=CARD_BG_COLOR, relief="flat", bd=0)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
-
-        header_bar = tk.Frame(main_frame, bg=MCHD_COLOR, height=80)
-        header_bar.pack(fill=tk.X)
-        header_bar.pack_propagate(False)
-
-        tk.Label(
-            header_bar, text="🔐", font=(UI_FONT, 32), bg=MCHD_COLOR, fg="white"
-        ).place(x=20, y=20)
-        tk.Label(
-            header_bar,
-            text="Анализатор сертификатов и МЧД",
-            font=(UI_FONT, 16, "bold"),
-            bg=MCHD_COLOR,
-            fg="white",
-        ).place(x=80, y=28)
-        tk.Label(
-            header_bar,
-            text="Версия 3.1",
-            font=(UI_FONT, 10),
-            bg=MCHD_COLOR,
-            fg="#e1bee7",
-        ).place(x=80, y=55)
-
-        body_frame = tk.Frame(main_frame, bg=CARD_BG_COLOR)
-        body_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=15)
-
-        canvas_frame = tk.Frame(body_frame, bg=CARD_BG_COLOR)
-        canvas_frame.pack(fill=tk.BOTH, expand=True)
-        canvas = tk.Canvas(canvas_frame, bg=CARD_BG_COLOR, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(
-            canvas_frame, orient=tk.VERTICAL, command=canvas.yview
-        )
-        scrollable_frame = tk.Frame(canvas, bg=CARD_BG_COLOR)
-        scrollable_frame.bind(
-            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        desc_frame = tk.Frame(scrollable_frame, bg=CARD_BG_COLOR)
-        desc_frame.pack(fill=tk.X, pady=(0, 15))
-        tk.Label(
-            desc_frame,
-            text="📋 ОПИСАНИЕ",
-            font=(UI_FONT, 11, "bold"),
-            fg=MCHD_COLOR,
-            bg=CARD_BG_COLOR,
-        ).pack(anchor=tk.W, pady=(0, 8))
-        description = """Программа для анализа сертификатов электронной подписи
- и машиночитаемых доверенностей (МЧД)."""
-        tk.Label(
-            desc_frame,
-            text=description,
-            font=(UI_FONT, 10),
-            fg=TEXT_COLOR,
-            bg=CARD_BG_COLOR,
-            justify=tk.LEFT,
-            wraplength=460,
-        ).pack(anchor=tk.W, pady=(0, 10))
-
-        functions_frame = tk.Frame(scrollable_frame, bg=CARD_BG_COLOR)
-        functions_frame.pack(fill=tk.X, pady=(0, 15))
-        tk.Label(
-            functions_frame,
-            text="⚡ ОСНОВНЫЕ ФУНКЦИИ",
-            font=(UI_FONT, 11, "bold"),
-            fg=MCHD_COLOR,
-            bg=CARD_BG_COLOR,
-        ).pack(anchor=tk.W, pady=(0, 8))
-        functions = [
-            "• Сканирование и анализ сертификатов (.cer, .crt, .der, .pem)",
-            "• Анализ XML файлов МЧД",
-            "• Объединение нескольких МЧД одного лица",
-            "• Отслеживание сроков действия",
-            "• Экспорт отчетов в Excel и PDF",
-            "• Календарь окончания сертификатов",
-            "• Push-уведомления о просроченных сертификатах",
-            "• 8 типов диаграмм для визуализации",
-            "• Загрузка справочника телефонов для поиска контактов",
-        ]
-        for func in functions:
-            tk.Label(
-                functions_frame,
-                text=func,
-                font=(UI_FONT, 10),
-                fg=TEXT_COLOR,
-                bg=CARD_BG_COLOR,
-                anchor=tk.W,
-            ).pack(anchor=tk.W, pady=2)
-
-        dev_frame = tk.Frame(scrollable_frame, bg=CARD_BG_COLOR)
-        dev_frame.pack(fill=tk.X, pady=(0, 15))
-        tk.Label(
-            dev_frame,
-            text="👨‍💻 РАЗРАБОТКА",
-            font=(UI_FONT, 11, "bold"),
-            fg=MCHD_COLOR,
-            bg=CARD_BG_COLOR,
-        ).pack(anchor=tk.W, pady=(0, 8))
-        dev_info = """Разработано для внутреннего использования.
- По вопросам и предложениям обращаться в ИБ-отдел."""
-        tk.Label(
-            dev_frame,
-            text=dev_info,
-            font=(UI_FONT, 10),
-            fg=TEXT_COLOR,
-            bg=CARD_BG_COLOR,
-            justify=tk.LEFT,
-            wraplength=460,
-        ).pack(anchor=tk.W)
-
-        copyright_frame = tk.Frame(scrollable_frame, bg=CARD_BG_COLOR)
-        copyright_frame.pack(fill=tk.X, pady=(10, 0))
-        tk.Label(
-            copyright_frame,
-            text="© 2026 | Все права защищены",
-            font=(UI_FONT, 9, "italic"),
-            fg=ACCENT_COLOR,
-            bg=CARD_BG_COLOR,
-        ).pack(anchor=tk.CENTER)
-
-        btn_frame = tk.Frame(main_frame, bg=CARD_BG_COLOR, pady=15)
-        btn_frame.pack(fill=tk.X)
-        close_btn = tk.Button(
-            btn_frame,
-            text="❌ ЗАКРЫТЬ",
-            command=lambda: self.close_window("about", about_window),
-            font=(UI_FONT, 10, "bold"),
-            bg=BUTTON_COLOR,
-            fg="white",
-            cursor="hand2",
-            padx=25,
-            pady=8,
-            relief="flat",
-            bd=0,
-        )
-        close_btn.pack()
-
-        def on_enter(e):
-            close_btn.config(bg=BUTTON_HOVER)
-
-        def on_leave(e):
-            close_btn.config(bg=BUTTON_COLOR)
-
-        close_btn.bind("<Enter>", on_enter)
-        close_btn.bind("<Leave>", on_leave)
-
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
-
-        def on_destroy():
-            canvas.unbind_all("<MouseWheel>")
-            self.open_windows["about"] = None
-            about_window.destroy()
-
-        about_window.protocol("WM_DELETE_WINDOW", on_destroy)
-
-    def create_card(self, parent, title, value, color=None):
-        card = ttk.Frame(parent, style="Card.TFrame", padding=12)
-        card.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=(0, 10))
-        ttk.Label(card, text=title, style="CardTitle.TLabel").pack(anchor=tk.W)
-        value_label = ttk.Label(card, text=value, style="CardValue.TLabel")
-        value_label.pack(anchor=tk.W)
-        if color:
-            value_label.configure(foreground=color)
-        return value_label
-
-    def export_menu(self):
-        menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="Экспорт в Excel", command=self.export_to_excel_gui)
-        menu.add_command(label="Экспорт в PDF", command=self.export_to_pdf_gui)
-        menu.tk_popup(self.root.winfo_pointerx(), self.root.winfo_pointery())
-
-    def service_menu(self):
-        menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="Установить службу", command=self.install_service)
-        menu.add_command(label="Удалить службу", command=self.remove_service)
-        menu.tk_popup(self.root.winfo_pointerx(), self.root.winfo_pointery())
-
-    def show_help(self):
-        if "help" in self.open_windows and self.open_windows["help"] is not None:
-            try:
-                if self.open_windows["help"].winfo_exists():
-                    self.open_windows["help"].lift()
-                    self.open_windows["help"].focus_force()
-                    return
-            except:
-                pass
-
-        help_text = """Анализатор сертификатов и МЧД - Справка
-
- ОСНОВНЫЕ ФУНКЦИИ:
-
- 1. 📁 РАБОТА С ПАПКАМИ
-    • Сотрудники - сканирование сертификатов сотрудников
-    • Руководство - сканирование сертификатов руководства
-    • МЧД - сканирование XML файлов МЧД
-
- 2. 📊 АНАЛИЗ СЕРТИФИКАТОВ    • Автоматическое определение статуса
-    • Извлечение кабинета и подразделения из OU
-    • Автоматический поиск телефона из справочника
-
- 3. 📊 АНАЛИЗ МЧД
-    • Номер доверенности, даты, ФИО, коды полномочий
-    • Подсветка людей с несколькими МЧД
-    • Поиск по фамилии, сортировка
-
- 4. 🔄 ОБЪЕДИНЕНИЕ МЧД
-    • Выберите несколько МЧД одного человека
-    • Нажмите "Объединить выбранные МЧД"
-
- 5. 🔍 ПОИСК И ФИЛЬТРАЦИЯ
-    • Поиск по всем полям
-    • Фильтр по диапазону дат
-
- 6. 📅 КАЛЕНДАРЬ
-    • Светло-розовый - просроченные
-    • Светло-желтый - истекающие
-    • Светло-зеленый - активные
-
- 7. 📊 ДИАГРАММЫ
-    • 8 типов диаграмм на выбор
-
- 8. 📤 ЭКСПОРТ
-    • Excel и PDF с графиком
-
- 9. 🔔 PUSH-УВЕДОМЛЕНИЯ
-    • Уведомления в системный трей Windows
-
-10. 📞 СПРАВОЧНИК ТЕЛЕФОНОВ
-    • Загрузка справочника из файла .docx или .txt
-    • Автоматический поиск телефона по кабинету, ФИО или подразделению
-    • Отображение найденного телефона в общем списке
-"""
-        help_window = tk.Toplevel(self.root)
-        help_window.title("Справка")
-        help_window.geometry("750x650")
-        help_window.configure(bg=BG_COLOR)
-        self.open_windows["help"] = help_window
-
-        frame = ttk.Frame(help_window, padding=20)
-        frame.pack(fill=tk.BOTH, expand=True)
-        text_widget = tk.Text(
-            frame,
-            wrap=tk.WORD,
-            font=(UI_FONT, 10),
-            background="white",
-            foreground=TEXT_COLOR,
-        )
-        text_widget.pack(fill=tk.BOTH, expand=True)
-        text_widget.insert("1.0", help_text)
-        text_widget.config(state="disabled")
+        status.pack(side="left", padx=5)
+        status.bind("<<ComboboxSelected>>", lambda _: self.refresh(reset=True))
+        ttk.Label(filters, text="Срок с:").pack(side="left", padx=(8, 2))
+        self.date_from_var = tk.StringVar()
+        ttk.Entry(filters, textvariable=self.date_from_var, width=11).pack(side="left")
+        ttk.Label(filters, text="по:").pack(side="left", padx=2)
+        self.date_to_var = tk.StringVar()
+        ttk.Entry(filters, textvariable=self.date_to_var, width=11).pack(side="left")
         ttk.Button(
+            filters, text="Применить", command=lambda: self.refresh(reset=True)
+        ).pack(side="left", padx=5)
+        ttk.Button(filters, text="Сбросить", command=self.clear_filters).pack(
+            side="left"
+        )
+        ttk.Label(
             frame,
-            text="Закрыть",
-            command=lambda: self.close_window("help", help_window),
-            style="Accent.TButton",
-        ).pack(pady=(10, 0))
+            text="Даты фильтра: ГГГГ-ММ-ДД. Поиск: ФИО, файл, номер, email, кабинет, подразделение, телефон.",
+        ).pack(anchor="w")
+        table = ttk.Frame(frame)
+        table.pack(fill="both", expand=True, pady=(6, 0))
+        self.tree = ttk.Treeview(
+            table, columns=list(COLUMNS), show="headings", selectmode="extended"
+        )
+        for key, (title, width) in COLUMNS.items():
+            self.tree.heading(
+                key, text=title, command=lambda key=key: self.sort_by(key)
+            )
+            self.tree.column(key, width=width, minwidth=90)
+        scroll = ttk.Scrollbar(table, command=self.tree.yview)
+        scroll.pack(side="right", fill="y")
+        self.tree.configure(yscrollcommand=scroll.set)
+        self.tree.pack(fill="both", expand=True)
+        self.tree.tag_configure("expired", foreground="#a82020")
+        self.tree.tag_configure("warning", foreground="#805500")
+        self.tree.bind("<<TreeviewSelect>>", self.show_details)
+        self.tree.bind("<Double-1>", self.open_certificate)
+        paging = ttk.Frame(frame)
+        paging.pack(fill="x", pady=7)
+        self.previous_button = ttk.Button(
+            paging, text="Предыдущие", command=lambda: self.change_page(-100)
+        )
+        self.previous_button.pack(side="left")
+        self.next_button = ttk.Button(
+            paging, text="Следующие", command=lambda: self.change_page(100)
+        )
+        self.next_button.pack(side="left", padx=5)
+        self.page_label = ttk.Label(paging)
+        self.page_label.pack(side="left", padx=10)
+        self.details = CertificateDetails(frame)
+        self.details.pack(fill="x", pady=5)
+        self.progress = ttk.Progressbar(frame, mode="indeterminate")
+        self.progress.pack(fill="x")
+        self.message = ttk.Label(frame, text="Готово")
+        self.message.pack(anchor="w")
 
-        def on_destroy():
-            self.open_windows["help"] = None
-            help_window.destroy()
+    def _search_changed(self, *_):
+        if self.search_after:
+            self.root.after_cancel(self.search_after)
+        self.search_after = self.root.after(250, self._apply_search)
 
-        help_window.protocol("WM_DELETE_WINDOW", on_destroy)
+    def _apply_search(self):
+        self.search_after = None
+        self.refresh(reset=True)
+
+    def clear_filters(self):
+        self.search_var.set("")
+        self.status_var.set("Все статусы")
+        self.date_from_var.set("")
+        self.date_to_var.set("")
+        self.refresh(reset=True)
+
+    def refresh(self, reset=False):
+        if self.closing:
+            return
+        if reset:
+            self.offset = 0
+        try:
+            query = CertificateQuery(
+                search=self.search_var.get(),
+                status=STATUS_LABELS[self.status_var.get()],
+                date_from=date.fromisoformat(self.date_from_var.get())
+                if self.date_from_var.get()
+                else None,
+                date_to=date.fromisoformat(self.date_to_var.get())
+                if self.date_to_var.get()
+                else None,
+                sort=self.sort,
+                descending=self.descending,
+                limit=100,
+                offset=self.offset,
+            )
+            stats = self.app.certificates.statistics(query)
+            if self.offset >= stats["total"]:
+                self.offset = max(0, (stats["total"] - 1) // 100 * 100)
+                query = replace(query, offset=self.offset)
+            records = self.app.certificates.list(query)
+            self.query = query
+            self._page = {c.fingerprint_sha256: c for c in records}
+            self.tree.delete(*self.tree.get_children())
+            for cert in records:
+                row = certificate_to_dict(cert)
+                tag = (
+                    "expired"
+                    if cert.status == CertificateStatus.EXPIRED
+                    else "warning"
+                    if cert.status == CertificateStatus.EXPIRING_SOON
+                    else ""
+                )
+                self.tree.insert(
+                    "",
+                    "end",
+                    iid=cert.fingerprint_sha256,
+                    values=(
+                        cert.subject,
+                        cert.original_name or Path(cert.source_path).name,
+                        row["valid_to"],
+                        row["department"],
+                        row["status"],
+                        cert.issuer,
+                    ),
+                    tags=(tag,),
+                )
+            self.stats_label.config(
+                text=f"Всего: {stats['total']}    Активные: {stats['ACTIVE']}    Истекающие: {stats['EXPIRING_SOON']}    Просроченные: {stats['EXPIRED']}    Недействительные: {stats['INVALID']}    Отозванные: {stats['REVOKED']}"
+            )
+            self.page_label.config(
+                text=f"{self.offset + 1 if records else 0}–{self.offset + len(records)} из {stats['total']}"
+            )
+            self.previous_button.config(state="normal" if self.offset else "disabled")
+            self.next_button.config(
+                state="normal"
+                if self.offset + len(records) < stats["total"]
+                else "disabled"
+            )
+            self.details.clear()
+        except Exception as exc:
+            self.message.config(text=str(exc))
+
+    def sort_by(self, key):
+        self.descending = not self.descending if self.sort == key else False
+        self.sort = key
+        self.refresh(reset=True)
+
+    def change_page(self, delta):
+        self.offset = max(0, self.offset + delta)
+        self.refresh()
+
+    def _schedule_refresh(self):
+        def tick():
+            self.refresh()
+            if not self.closing:
+                self._schedule_refresh()
+
+        self.refresh_after = self.root.after(60000, tick)
+
+    def _submit(self, action, finished):
+        if self.future and not self.future.done():
+            messagebox.showinfo(
+                "Выполняется операция", "Дождитесь завершения текущей операции."
+            )
+            return
+        if self.closing:
+            return
+        self.progress.start()
+        self.message.config(text="Выполняется операция…")
+        for button in self.import_buttons:
+            button.config(state="disabled")
+        self.future = self.executor.submit(action)
+        self.root.after(50, lambda: self._poll(finished))
+
+    def _poll(self, finished):
+        if not self.future.done():
+            self.root.after(50, lambda: self._poll(finished))
+            return
+        self.progress.stop()
+        for button in self.import_buttons:
+            button.config(state="normal")
+        try:
+            result = self.future.result()
+            if not self.closing:
+                finished(result)
+                self.refresh()
+        except Exception as exc:
+            if not self.closing:
+                self.message.config(text="Операция не завершена")
+                messagebox.showerror("Ошибка", str(exc))
+        finally:
+            self.future = None
+            if self.closing:
+                self._finish_close()
+
+    def _import_finished(self, result):
+        self.message.config(
+            text=f"Добавлено: {result.imported}; обновлено: {result.updated}; без изменений: {result.skipped}; ошибок: {len(result.errors)}"
+        )
+        if result.errors:
+            messagebox.showwarning(
+                "Ошибки импорта",
+                "\n".join(f"{p}: {e}" for p, e in result.errors.items()),
+            )
+
+    def import_files(self):
+        paths = filedialog.askopenfilenames(
+            title="Импорт сертификатов",
+            filetypes=[
+                ("Сертификаты", "*.cer *.crt *.der *.pem"),
+                ("Все файлы", "*.*"),
+            ],
+        )
+        if paths:
+            self._submit(
+                lambda: self.app.certificates.import_files(paths), self._import_finished
+            )
+
+    def import_folder(self):
+        path = filedialog.askdirectory(title="Импорт сертификатов из папки")
+        if path:
+            self._submit(
+                lambda: self.app.certificates.import_folder(path), self._import_finished
+            )
+
+    def import_phonebook(self):
+        path = filedialog.askopenfilename(
+            title="Справочник", filetypes=[("Справочник", "*.txt *.docx")]
+        )
+        if path:
+
+            def finished(count):
+                self.app.settings.phonebook_path = path
+                save_settings(self.app.settings, self.config_path)
+                self.message.config(
+                    text=f"Справочник: {count} записей; контакты обновлены"
+                )
+
+            self._submit(lambda: self.app.certificates.load_phonebook(path), finished)
+
+    def show_details(self, _=None):
+        selection = self.tree.selection()
+        cert = self._page.get(selection[0]) if selection else None
+        if not cert:
+            self.details.clear()
+            return
+        exists = bool(cert.source_path and Path(cert.source_path).is_file())
+        self.details.update_details(
+            {
+                "Subject": cert.subject,
+                "Issuer": cert.issuer,
+                "Serial": cert.serial_number or "—",
+                "SHA-256": cert.fingerprint_sha256,
+                "Путь": cert.source_path
+                if exists
+                else f"Файл отсутствует: {cert.source_path or 'путь не сохранён'}",
+                "Email": cert.email or "—",
+            }
+        )
+
+    def open_certificate(self, _=None):
+        selected = self.tree.selection()
+        if not selected:
+            return
+        cert = self.app.certificates.get(selected[0])
+        if not cert.source_path or not Path(cert.source_path).is_file():
+            messagebox.showwarning(
+                "Файл отсутствует",
+                "Импортируйте сертификат повторно для восстановления файла в хранилище.",
+            )
+            return
+        try:
+            open_path(cert.source_path)
+        except OSError as exc:
+            messagebox.showerror("Открытие сертификата", str(exc))
+
+    def delete_selected(self):
+        keys = list(self.tree.selection())
+        if keys and messagebox.askyesno(
+            "Удаление записей",
+            f"Удалить записей: {len(keys)}? Файлы в хранилище сохранятся.",
+        ):
+            self._submit(
+                lambda: self.app.certificates.delete_records(keys),
+                lambda count: self.message.config(text=f"Удалено записей: {count}"),
+            )
+
+    def export_report(self):
+        path = filedialog.asksaveasfilename(
+            title="Отчёт по всем записям текущего фильтра",
+            defaultextension=".xlsx",
+            filetypes=[("Excel", "*.xlsx"), ("PDF", "*.pdf")],
+        )
+        if not path:
+            return
+        query = replace(self.query, limit=None, offset=0)
+        self._submit(
+            lambda: self.app.reports.export(
+                Path(path).suffix.lstrip(".").lower(),
+                self.app.certificates.list(query),
+                [],
+                path,
+            ),
+            lambda output: self.message.config(text=f"Отчёт сохранён: {output}"),
+        )
+
+    def open_mchd(self):
+        path = filedialog.askdirectory(title="Папка XML МЧД")
+        if not path:
+            return
+
+        def finished(records):
+            from certificate_analyzer.application.dto.mchd_dto import mchd_to_dict
+            from certificate_analyzer.presentation.gui.views.mchd_view import (
+                MCHDTableWindow,
+            )
+
+            if self.app.mchds.errors:
+                messagebox.showwarning(
+                    "Ошибки МЧД", "\n".join(self.app.mchds.errors.values())
+                )
+            MCHDTableWindow(self.root, [mchd_to_dict(m).to_dict() for m in records])
+            self.message.config(text=f"МЧД: {len(records)}")
+
+        self._submit(lambda: self.app.mchds.scan(path), finished)
+
+    def show_settings(self):
+        window = tk.Toplevel(self.root)
+        window.title("Настройки хранилища")
+        frame = ttk.Frame(window, padding=16)
+        frame.pack(fill="both", expand=True)
+        fields = {}
+        values = {
+            "storage_folder": (
+                "Папка сертификатов",
+                str(self.app.certificates.storage.folder),
+            ),
+            "database_path": ("Файл SQLite", str(self.app.database.path)),
+            "export_folder": ("Папка отчётов", self.app.settings.export_folder),
+            "warning_days": (
+                "Предупреждать за дней",
+                str(self.app.settings.warning_days),
+            ),
+            "check_interval": (
+                "Интервал мониторинга, секунд",
+                str(self.app.settings.check_interval),
+            ),
+        }
+        for index, (key, (label, value)) in enumerate(values.items()):
+            ttk.Label(frame, text=label).grid(row=index, column=0, sticky="w", pady=5)
+            fields[key] = tk.StringVar(value=value)
+            ttk.Entry(frame, textvariable=fields[key], width=55).grid(
+                row=index, column=1, padx=10
+            )
+        ttk.Label(
+            frame,
+            text="Настройки вступят в силу после перезапуска. Существующие файлы автоматически не перемещаются.",
+            wraplength=600,
+        ).grid(row=len(values), column=0, columnspan=2, pady=12)
+
+        def save():
+            try:
+                settings = replace(
+                    self.app.settings,
+                    **{
+                        k: int(v.get())
+                        if k in ("warning_days", "check_interval")
+                        else v.get()
+                        for k, v in fields.items()
+                    },
+                )
+                save_settings(settings, self.config_path)
+                window.destroy()
+                self.message.config(
+                    text="Настройки сохранены. Перезапустите приложение."
+                )
+            except (ValueError, OSError) as exc:
+                messagebox.showerror("Настройки", str(exc), parent=window)
+
+        ttk.Button(frame, text="Сохранить", command=save).grid(
+            row=len(values) + 1, column=1, sticky="e"
+        )
+
+    def close(self):
+        self.closing = True
+        if self.search_after:
+            self.root.after_cancel(self.search_after)
+            self.search_after = None
+        if self.refresh_after:
+            self.root.after_cancel(self.refresh_after)
+            self.refresh_after = None
+        if self.future:
+            self.message.config(text="Завершение текущей операции перед закрытием…")
+            return
+        self._finish_close()
+
+    def _finish_close(self):
+        self.executor.shutdown(wait=True)
+        if self._owns_app:
+            self.app.close()
+        self.root.destroy()

@@ -81,9 +81,7 @@ def parse_date(value: str, *, field_name: str = "дата") -> datetime:
         except ValueError:
             pass
 
-    raise ValueError(
-        f"Некорректная или отсутствующая {field_name} МЧД: {value!r}"
-    )
+    raise ValueError(f"Некорректная или отсутствующая {field_name} МЧД: {value!r}")
 
 
 def get_fio(node: Element | None) -> str:
@@ -105,8 +103,7 @@ def find_representative(root: Element) -> Element | None:
         (
             element
             for element in root.iter()
-            if local_name(element.tag) == "СвУпПред"
-            and element.get("ТипПред") == "3"
+            if local_name(element.tag) == "СвУпПред" and element.get("ТипПред") == "3"
         ),
         None,
     )
@@ -160,6 +157,18 @@ class MchdXmlParser:
             valid_to=valid_to,
             status=mchd_status(valid_to),
             authority_codes=collect_authority_codes(root),
+            source_path=str(Path(xml_path).resolve()),
+            authority_names=[
+                next(
+                    (
+                        element.get("НаимПолн", "")
+                        for element in root.iter()
+                        if element.get("КодПолн") == code
+                    ),
+                    "",
+                )
+                for code in collect_authority_codes(root)
+            ],
         )
 
 

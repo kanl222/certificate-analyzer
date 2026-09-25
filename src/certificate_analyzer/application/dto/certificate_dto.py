@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
@@ -53,11 +52,9 @@ class CertificateDTO:
         return self.details.get(key, default)
 
     def keys(self) -> list[str]:
-        return [
-            item.name
-            for item in fields(self)
-            if item.name != "details"
-        ] + list(self.details)
+        return [item.name for item in fields(self) if item.name != "details"] + list(
+            self.details
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Return flattened dictionary representation."""
@@ -120,33 +117,26 @@ def certificate_to_dto(cert) -> CertificateDTO:
 
     employee = getattr(cert, "employee", None)
 
-    phones = (
-        getattr(employee, "phones", None)
-        if employee is not None
-        else None
-    )
+    phones = getattr(employee, "phones", None) if employee is not None else None
 
     return CertificateDTO(
-        file_name=str(
-            getattr(cert, "source_path", None) or EMPTY
-        ),
+        file_name=str(getattr(cert, "source_path", None) or EMPTY),
         file_type="Сертификат",
         valid_from=cert.valid_from.strftime("%d.%m.%Y"),
         valid_to=cert.valid_to.strftime("%d.%m.%Y"),
         subject_cn=_display(cert.subject),
         serial_number=_display(cert.serial_number),
-        email=_display(
-            getattr(cert, "email", None)
-        ),
-        office_number=_display(
-            getattr(employee, "office", None)
-        ),
-        department=_display(
-            getattr(employee, "department", None)
-        ),
+        email=_display(getattr(cert, "email", None)),
+        office_number=_display(getattr(employee, "office", None)),
+        department=_display(getattr(employee, "department", None)),
         phone=", ".join(phones) if phones else EMPTY,
         status=status,
         color=color,
+        details={
+            "fingerprint_sha256": cert.fingerprint_sha256,
+            "issuer": cert.issuer,
+            "original_name": cert.original_name,
+        },
     )
 
 

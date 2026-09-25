@@ -29,3 +29,5 @@ class Certificate:
     owner_name: str | None = None
     employee: Optional["Employee"] = None
     source_path: str = ""
+    email: str = ""
+    original_name: str = ""

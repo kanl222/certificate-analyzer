@@ -11,9 +11,9 @@ def test_txt_phone_lookup_and_email_filter(tmp_path):
     )
     book = PhoneBook()
     book.load(path)
-    assert book.find_phone({"subject_cn": "ИВАНОВ ИВАН"}) == "123-45, 555"
-    assert book.find_phone({"office_number": "101"}) == "123-45, 555"
-    assert book.find_phone({"subject_cn": "Другой"}) == "—"
+    assert book.find_phone(full_name="ИВАНОВ ИВАН") == "123-45, 555"
+    assert book.find_phone(office="101") == "123-45, 555"
+    assert book.find_phone(full_name="Другой") is None
 
 
 def test_docx_lookup(tmp_path):
@@ -25,4 +25,4 @@ def test_docx_lookup(tmp_path):
     doc.save(path)
     book = PhoneBook()
     book.load(path)
-    assert book.find_phone({"subject_cn": "Иванов Иван"}) == "123"
+    assert book.find_phone(full_name="Иванов Иван") == "123"

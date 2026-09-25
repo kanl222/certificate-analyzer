@@ -1,10 +1,9 @@
 import signal
-
 from certificate_analyzer.runtime.worker import MonitoringWorker
 
 
-def run(settings=None):
-    worker = MonitoringWorker(settings)
+def run(settings=None, *, worker=None):
+    worker = worker or MonitoringWorker(settings)
     previous = {}
     try:
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -13,3 +12,4 @@ def run(settings=None):
     finally:
         for sig, handler in previous.items():
             signal.signal(sig, handler)
+        worker.close()

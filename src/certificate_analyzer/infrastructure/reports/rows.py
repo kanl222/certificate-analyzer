@@ -28,7 +28,7 @@ def model_rows(certificates, mchds):
 def values(row):
     return [
         row.get("file_type", "Сертификат"),
-        Path(row.get("file_name", "")).name,
+        row.get("original_name") or Path(row.get("file_name", "")).name,
         row.get("valid_from", row.get("issue_date", "")),
         row.get("valid_to", row.get("expiry_date", "")),
         row.get("subject_cn", row.get("full_name", "")),

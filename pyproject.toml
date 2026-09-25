@@ -14,14 +14,10 @@ dependencies = [
     "python-docx>=1.1",
     "defusedxml>=0.7",
     "sqlalchemy>=2.0.54",
-    "matplotlib>=3.11.2",
-    "tkcalendar>=1.6.1",
-    "pyperclip>=1.11.0",
-    "pyside6>=6.11.2",
 ]
 
 [project.optional-dependencies]
-gui = ["matplotlib>=3.8", "tkcalendar>=1.6", "pyperclip>=1.8"]
+gui = ["pyperclip>=1.8"]
 windows = ["pywin32>=306; sys_platform == 'win32'", "win10toast>=0.9; sys_platform == 'win32'"]
 
 [dependency-groups]

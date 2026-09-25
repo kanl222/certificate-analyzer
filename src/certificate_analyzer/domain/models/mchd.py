@@ -22,3 +22,6 @@ class MchdDocument:
     status: MchdStatus = MchdStatus.ACTIVE
     # Полномочия должны храниться в нормализованной таблице БД
     authority_codes: list[str] = field(default_factory=list)
+    source_path: str = ""
+    authority_names: list[str] = field(default_factory=list)
+    details: dict[str, str] = field(default_factory=dict)

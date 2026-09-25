@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.x509.oid import NameOID
 
 from certificate_analyzer.domain.models.certificate import Certificate
@@ -53,6 +53,8 @@ class X509Parser:
         cert = cls._load_certificate(cert_data)
 
         model = cls._create_model(cert)
+        if isinstance(cert_source, (str, Path)):
+            model.source_path = str(Path(cert_source).resolve())
         return model
 
     @staticmethod
@@ -70,6 +72,12 @@ class X509Parser:
             return path.read_bytes()
 
         raise TypeError("cert_source должен иметь тип bytes, str или Path")
+
+    @classmethod
+    def parse_for_import(cls, source):
+        """Parse once; return metadata and a public certificate in canonical DER."""
+        cert = cls._load_certificate(cls._read_source(source))
+        return cls._create_model(cert), cert.public_bytes(serialization.Encoding.DER)
 
     @staticmethod
     def _load_certificate(
@@ -107,23 +115,28 @@ class X509Parser:
             cert.serial_number,
             "X",
         )
-        
+
         email = ", ".join(
             str(a.value)
             for a in cert.subject.get_attributes_for_oid(NameOID.EMAIL_ADDRESS)
         )
         office = ", ".join(
             str(a.value)
-            for a in cert.subject.get_attributes_for_oid(NameOID.ORGANIZATIONAL_UNIT_NAME)
+            for a in cert.subject.get_attributes_for_oid(
+                NameOID.ORGANIZATIONAL_UNIT_NAME
+            )
             if re.search(r"\d", str(a.value))
         )
         department = ", ".join(
             str(a.value)
-            for a in cert.subject.get_attributes_for_oid(NameOID.ORGANIZATIONAL_UNIT_NAME)
+            for a in cert.subject.get_attributes_for_oid(
+                NameOID.ORGANIZATIONAL_UNIT_NAME
+            )
             if not re.search(r"\d", str(a.value))
         )
 
         from certificate_analyzer.domain.models.employee import Employee
+
         employee = Employee(
             full_name=subject,
             department=department if department else None,
@@ -140,6 +153,7 @@ class X509Parser:
             has_private_key_link=False,
             owner_name=subject,
             employee=employee,
+            email=email,
         )
 
     @staticmethod
