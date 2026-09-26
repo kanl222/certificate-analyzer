@@ -69,7 +69,7 @@ class NotificationHistory:
         title_frame.pack(fill=tk.X, pady=(0, 10))
 
         ttk.Label(
-            title_frame, text="📋 История уведомлений", font=(UI_FONT, 14, "bold")
+            title_frame, text="История уведомлений", font=(UI_FONT, 14, "bold")
         ).pack(side=tk.LEFT)
 
         ttk.Label(
@@ -156,15 +156,15 @@ class NotificationHistory:
             self.history_tree.delete(item)
 
         types = {
-            "error": "❌ Ошибка",
-            "warning": "⚠️ Внимание",
-            "success": "✅ Успех",
-            "info": "ℹ️ Информация",
+            "error": "Ошибка",
+            "warning": "Внимание",
+            "success": "Успех",
+            "info": "Информация",
         }
 
         for notif in self.notifications:
             notif_type = notif.get("type", "info")
-            display_type = types.get(notif_type, "ℹ️ Информация")
+            display_type = types.get(notif_type, "Информация")
             tag = notif_type
 
             self.history_tree.insert(

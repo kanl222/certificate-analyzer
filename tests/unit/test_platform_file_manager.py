@@ -29,7 +29,7 @@ def test_windows_open_file_success(tmp_path: Path):
     test_file.write_text("test")
 
     manager = WindowsPlatformFileManager()
-    with patch("os.startfile") as mock_startfile:
+    with patch("os.startfile", create=True) as mock_startfile:
         manager.open_file(test_file)
         mock_startfile.assert_called_once_with(str(test_file.resolve()))
 
@@ -82,10 +82,12 @@ def test_windows_move_to_trash(tmp_path: Path):
     test_file.write_text("test")
 
     manager = WindowsPlatformFileManager()
-    with patch("ctypes.windll.shell32.SHFileOperationW", return_value=0) as mock_op:
+    mock_windll = MagicMock()
+    mock_windll.shell32.SHFileOperationW.return_value = 0
+    with patch("ctypes.windll", mock_windll, create=True):
         result = manager.move_to_trash(test_file)
         assert result is True
-        mock_op.assert_called_once()
+        mock_windll.shell32.SHFileOperationW.assert_called_once()
 
 
 def test_linux_open_file_success(tmp_path: Path):

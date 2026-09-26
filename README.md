@@ -99,12 +99,15 @@ uv run certificate-analyzer merge first.xml second.xml --output draft.xml
 
 Worker читает записи БД, пересчитывает сроки, формирует `monitoring.xlsx`, проверяет наличие файлов и отправляет уведомления. Исходные каталоги не сканируются. Linux-уведомления используют `notify-send`; Windows — `win10toast`.
 
-Linux: `bash packaging/linux/install.sh` устанавливает пользовательский systemd-сервис из текущего окружения, `bash packaging/linux/uninstall.sh` удаляет его. Настройте для GUI и worker одну БД и папку хранилища.
+**Linux:**
+- Установка: `bash packaging/linux/install.sh` автоматически проверяет и устанавливает необходимые системные зависимости (`notify-send` из `libnotify`/`libnotify-bin`, `python3-tk`, `xdg-utils`, `gio`/`trash-cli`, шрифты) через пакетный менеджер (apt, dnf, pacman, zypper, apk), создает ярлык приложения `.desktop` и настраивает пользовательскую службу systemd. Флаги: `--deps-only` (только зависимости), `--no-deps` (без пакетов), `--service-only` (только служба), `--desktop-only` (только ярлык).
+- Удаление: `bash packaging/linux/uninstall.sh` останавливает и отключает службу systemd, удаляет ярлык приложения (дополнительный флаг `--purge` очищает данные и настройки в `~/.certificate-analyzer`).
 
-Windows: в административном терминале после установки extra `windows`:
-`python -m certificate_analyzer service install`, затем `python -m certificate_analyzer service start`.
-Удаление: `python -m certificate_analyzer service remove`.
-Настройки службы принадлежат её учётной записи; задайте для неё `CERTIFICATE_ANALYZER_HOME` или подготовьте соответствующий профиль.
+**Windows:**
+- Полная установка: в PowerShell запустите `.\packaging\windows\install.ps1` (устанавливает зависимости GUI/Windows, создаёт ярлыки на рабочем столе и в меню «Пуск», регистрирует и запускает службу). Параметры: `-NoService` (без службы), `-ServiceOnly` (только служба), `-NoShortcuts` (без ярлыков).
+- Управление только службой: `.\packaging\windows\install-service.ps1` (установка и старт службы от имени администратора) и `.\packaging\windows\uninstall-service.ps1` (остановка и удаление).
+- Удаление: `.\packaging\windows\uninstall.ps1` (останавливает/удаляет службу и ярлыки, ключ `-Purge` удаляет данные из `%USERPROFILE%\.certificate-analyzer`).
+- Настройки службы принадлежат её учётной записи; при необходимости задайте переменную `CERTIFICATE_ANALYZER_HOME`.
 
 ## Проверки
 

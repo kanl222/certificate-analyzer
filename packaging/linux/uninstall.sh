@@ -1,6 +1,70 @@
 #!/usr/bin/env bash
 set -euo pipefail
-systemctl --user disable --now cert-analyzer.service
+
+PURGE_DATA=0
+
+for arg in "$@"; do
+    case "$arg" in
+        --purge)
+            PURGE_DATA=1
+            ;;
+        -h|--help)
+            echo "Использование: $0 [ПАРАМЕТРЫ]"
+            echo "Удаляет пользовательский systemd-сервис и ярлык приложения Certificate Analyzer."
+            echo ""
+            echo "Параметры:"
+            echo "  --purge       Также удалить пользовательские данные и настройки (~/.certificate-analyzer)"
+            echo "  -h, --help    Показать эту справку"
+            exit 0
+            ;;
+        *)
+            echo "Неизвестный параметр: $arg" >&2
+            echo "Запустите '$0 --help' для справки." >&2
+            exit 1
+            ;;
+    esac
+done
+
+echo "==> Удаление Certificate Analyzer для Linux..."
+
+# 1. Остановка и отключение службы systemd
+if command -v systemctl >/dev/null 2>&1; then
+    if systemctl --user is-active --quiet cert-analyzer.service 2>/dev/null; then
+        echo "Остановка службы cert-analyzer.service..."
+        systemctl --user stop cert-analyzer.service || true
+    fi
+    if systemctl --user is-enabled --quiet cert-analyzer.service 2>/dev/null; then
+        echo "Отключение службы cert-analyzer.service..."
+        systemctl --user disable cert-analyzer.service || true
+    fi
+fi
+
+# 2. Удаление файла службы
 service_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-rm -f "$service_dir/cert-analyzer.service"
-systemctl --user daemon-reload
+if [ -f "$service_dir/cert-analyzer.service" ]; then
+    rm -f "$service_dir/cert-analyzer.service"
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user daemon-reload || true
+    fi
+    echo "Файл службы $service_dir/cert-analyzer.service удален."
+fi
+
+# 3. Удаление ярлыка приложения (.desktop)
+apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+desktop_file="$apps_dir/certificate-analyzer.desktop"
+if [ -f "$desktop_file" ]; then
+    rm -f "$desktop_file"
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "$apps_dir" 2>/dev/null || true
+    fi
+    echo "Ярлык приложения $desktop_file удален."
+fi
+
+# 4. Опциональная очистка данных
+if [ "$PURGE_DATA" -eq 1 ]; then
+    echo "Удаление данных и конфигурации (~/.certificate-analyzer)..."
+    rm -rf "$HOME/.certificate-analyzer"
+    echo "Данные успешно удалены."
+fi
+
+echo "==> Удаление завершено!"
