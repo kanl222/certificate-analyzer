@@ -57,8 +57,8 @@ class ToastNotification:
             self.toast.configure(bg=self.bg_color, bd=0, highlightthickness=0)
             self.toast.attributes("-topmost", True)
 
-            icons = {"info": "ℹ️", "warning": "⚠️", "error": "❌", "success": "✅"}
-            icon = icons.get(self.notification_type, "ℹ️")
+            icons = {"info": "[i]", "warning": "[!]", "error": "[x]", "success": "[OK]"}
+            icon = icons.get(self.notification_type, "[i]")
 
             titles = {
                 "info": "Информация",
@@ -77,10 +77,10 @@ class ToastNotification:
             tk.Label(
                 header_frame,
                 text=icon,
-                font=(UI_FONT, 16),
+                font=(UI_FONT, 10, "bold"),
                 bg=self.bg_color,
                 fg=self.fg_color,
-            ).pack(side=tk.LEFT, padx=(0, 10))
+            ).pack(side=tk.LEFT, padx=(0, 8))
             tk.Label(
                 header_frame,
                 text=title_text,
@@ -91,8 +91,8 @@ class ToastNotification:
 
             close_btn = tk.Label(
                 header_frame,
-                text="✕",
-                font=(UI_FONT, 12, "bold"),
+                text="x",
+                font=(UI_FONT, 11, "bold"),
                 bg=self.bg_color,
                 fg=self.fg_color,
                 cursor="hand2",

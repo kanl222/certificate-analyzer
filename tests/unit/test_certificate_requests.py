@@ -98,6 +98,36 @@ def test_update_request_status(request_service: CertificateRequestService):
     assert updated.status == CertificateRequestStatus.IN_PROGRESS
 
 
+def test_request_requires_electronic_signature_by_default(
+    request_service: CertificateRequestService,
+):
+    """Новая заявка по умолчанию создается для выпуска сертификата ЭП."""
+    request = request_service.create_request(request_number="REQ-SIGN-DEFAULT")
+
+    assert request.needs_signature is True
+
+
+def test_mark_request_processed(request_service: CertificateRequestService):
+    """Проверяет перевод заявки в статус «Обработана» без удаления из базы данных.
+
+    Args:
+        request_service: Тестируемый сервис заявок.
+
+    Returns:
+        None
+    """
+    req = request_service.create_request(request_number="REQ-PROC-001")
+    assert req.id is not None
+
+    ok = request_service.update_status(req.id, CertificateRequestStatus.PROCESSED)
+    assert ok is True
+
+    processed = request_service.get_request(req.id)
+    assert processed is not None
+    assert processed.status == CertificateRequestStatus.PROCESSED
+    assert processed.status.label == "Обработана"
+
+
 def test_link_certificate(request_service: CertificateRequestService):
     """Проверяет связывание заявки с отпечатком выпущенного сертификата.
 

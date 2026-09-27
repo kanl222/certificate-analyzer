@@ -84,14 +84,14 @@ class NotificationHistory:
 
         ttk.Button(
             btn_frame,
-            text="🗑 Очистить историю",
+            text="Очистить историю",
             command=self.clear_history,
             style="Accent.TButton",
         ).pack(side=tk.LEFT, padx=5)
 
         ttk.Button(
             btn_frame,
-            text="🔄 Обновить",
+            text="Обновить",
             command=self.refresh_history_display,
             style="Accent.TButton",
         ).pack(side=tk.LEFT, padx=5)

@@ -9,7 +9,7 @@ from .certificates import (
     CertificateSourceModel,
 )
 from .employees import EmployeeModel
-from .mchds import MchdModel
+from .mchds import MchdAuthorityModel, MchdModel
 
 __all__ = [
     "AuditEventModel",
@@ -19,5 +19,6 @@ __all__ = [
     "CertificateRequestModel",
     "CertificateSourceModel",
     "EmployeeModel",
+    "MchdAuthorityModel",
     "MchdModel",
 ]

@@ -1,3 +1,6 @@
+from tkinter import ttk
+
+
 BG_COLOR = "#F5F7FA"
 UI_FONT = "Noto Sans"
 MONO_FONT = "DejaVu Sans Mono"
@@ -41,3 +44,43 @@ CAL_NORMAL_BG = "#2E7D32"
 CAL_NORMAL_FG = "#FFFFFF"
 CAL_TODAY_BG = "#6C5CE7"
 CAL_TODAY_FG = "#FFFFFF"
+
+
+def configure_gui_styles(root) -> None:
+    """Настраивает единый внешний вид основных панелей приложения."""
+    style = ttk.Style(root)
+    style.theme_use("clam")
+
+    style.configure(
+        ".", font=(UI_FONT, 10), background=BG_COLOR, foreground=TEXT_COLOR
+    )
+    style.configure("TNotebook", background=BG_COLOR, borderwidth=0)
+    style.configure(
+        "TNotebook.Tab",
+        font=(UI_FONT, 10, "bold"),
+        padding=(14, 8),
+    )
+    style.configure(
+        "Treeview",
+        rowheight=30,
+        background=CARD_BG_COLOR,
+        fieldbackground=CARD_BG_COLOR,
+    )
+    style.configure("Treeview.Heading", font=(UI_FONT, 10, "bold"))
+
+    style.configure("Panel.TFrame", background=CARD_BG_COLOR)
+    style.configure(
+        "Panel.TLabel", background=CARD_BG_COLOR, foreground=TEXT_COLOR
+    )
+    style.configure("Toolbar.TButton", padding=(10, 6))
+    style.configure(
+        "Accent.TButton",
+        background=ACCENT_COLOR,
+        foreground="white",
+        padding=(12, 6),
+    )
+    style.map(
+        "Accent.TButton",
+        background=[("active", BUTTON_HOVER), ("pressed", BUTTON_HOVER)],
+        foreground=[("disabled", SECONDARY_TEXT_COLOR)],
+    )

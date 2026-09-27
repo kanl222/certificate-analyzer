@@ -1,6 +1,9 @@
+"""Окно отображения нормативных документов по электронной подписи и МЧД."""
+
 import tkinter as tk
 import webbrowser
 from tkinter import ttk
+from typing import Any
 
 from certificate_analyzer.presentation.gui.styles import (
     ACCENT_COLOR,
@@ -11,12 +14,21 @@ from certificate_analyzer.presentation.gui.styles import (
 
 
 class NormativeWindow:
-    def __init__(self, parent):
+    """Диалоговое окно со справочником нормативных документов и стандартов."""
+
+    def __init__(self, parent: Any) -> None:
+        """Инициализирует и открывает окно нормативных документов.
+
+        Args:
+            parent: Родительский виджет Tkinter.
+        """
         self.parent = parent
-        self.window = None
+        self.window: tk.Toplevel | None = None
+        self._unbind_mousewheel = None
         self._create_window()
 
-    def _create_window(self):
+    def _create_window(self) -> None:
+        """Создает Toplevel окно или переводит фокус на существующее."""
         if self.window and self.window.winfo_exists():
             self.window.lift()
             self.window.focus_force()
@@ -29,12 +41,27 @@ class NormativeWindow:
         self.setup_ui()
         self.window.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    def _on_close(self):
+    def _on_close(self) -> None:
+        """Безопасно закрывает окно и освобождает глобальные обработчики событий."""
+        if self._unbind_mousewheel:
+            self._unbind_mousewheel()
+            self._unbind_mousewheel = None
+
         if self.window:
+            try:
+                self.window.unbind("<MouseWheel>")
+                self.window.unbind("<Button-4>")
+                self.window.unbind("<Button-5>")
+            except (tk.TclError, RuntimeError):
+                pass
             self.window.destroy()
             self.window = None
 
-    def setup_ui(self):
+    def setup_ui(self) -> None:
+        """Формирует интерфейс окна нормативных документов со скроллингом."""
+        if not self.window:
+            return
+
         frame = ttk.Frame(self.window, padding=20)
         frame.pack(fill=tk.BOTH, expand=True)
         ttk.Label(
@@ -78,7 +105,6 @@ class NormativeWindow:
                 "Порядок применения машиночитаемой доверенности",
             ),
             (
-                    
                 "ФЕДЕРАЛЬНЫЙ ЗАКОН № 149-ФЗ от 27.07.2006 'Об информации и защите информации'",
                 "http://www.consultant.ru/document/cons_doc_LAW_61798/",
                 "Закон об информации",
@@ -127,7 +153,7 @@ class NormativeWindow:
             desc_label.pack(anchor=tk.W, pady=(2, 0))
         info_label = ttk.Label(
             scrollable_frame,
-            text="\n💡 Для открытия документа нажмите на название выше.\nСсылки открываются в браузере по умолчанию.",
+            text="\nДля открытия документа нажмите на название выше.\nСсылки открываются в браузере по умолчанию.",
             font=(UI_FONT, 9, "italic"),
             foreground=ACCENT_COLOR,
         )
@@ -136,7 +162,44 @@ class NormativeWindow:
             frame, text="Закрыть", command=self._on_close, style="Accent.TButton"
         ).pack(pady=(10, 0))
 
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        def _on_mousewheel(event: tk.Event) -> None:
+            """Прокручивает содержимое холста при событии колеса мыши."""
+            try:
+                if not canvas.winfo_exists():
+                    return
+                if event.num == 4:
+                    canvas.yview_scroll(-1, "units")
+                elif event.num == 5:
+                    canvas.yview_scroll(1, "units")
+                elif getattr(event, "delta", 0):
+                    canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            except (tk.TclError, RuntimeError):
+                pass
 
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        def _bind_mousewheel(_event: tk.Event | None = None) -> None:
+            """Активирует прокрутку колесом мыши при наведении курсора на холст."""
+            try:
+                canvas.bind_all("<MouseWheel>", _on_mousewheel)
+                canvas.bind_all("<Button-4>", _on_mousewheel)
+                canvas.bind_all("<Button-5>", _on_mousewheel)
+            except (tk.TclError, RuntimeError):
+                pass
+
+        def _unbind_mousewheel(_event: tk.Event | None = None) -> None:
+            """Деактивирует глобальные привязки прокрутки колесом мыши."""
+            try:
+                canvas.unbind_all("<MouseWheel>")
+                canvas.unbind_all("<Button-4>")
+                canvas.unbind_all("<Button-5>")
+            except (tk.TclError, RuntimeError):
+                pass
+
+        self._unbind_mousewheel = _unbind_mousewheel
+
+        canvas.bind("<Enter>", _bind_mousewheel)
+        canvas.bind("<Leave>", _unbind_mousewheel)
+        scrollable_frame.bind("<Enter>", _bind_mousewheel)
+        scrollable_frame.bind("<Leave>", _unbind_mousewheel)
+        self.window.bind("<MouseWheel>", _on_mousewheel)
+        self.window.bind("<Button-4>", _on_mousewheel)
+        self.window.bind("<Button-5>", _on_mousewheel)

@@ -11,6 +11,7 @@ from certificate_analyzer.application.services.certificate_service import (
 )
 from certificate_analyzer.application.services.employee_service import EmployeeService
 from certificate_analyzer.application.services.mchd_service import MchdService
+from certificate_analyzer.application.services.monitoring_service import MonitoringService
 from certificate_analyzer.application.services.notification_service import (
     PushNotificationManager,
 )
@@ -45,6 +46,9 @@ from certificate_analyzer.infrastructure.repositories.certificate_request_reposi
 from certificate_analyzer.infrastructure.repositories.employee_repository import (
     EmployeeRepository,
 )
+from certificate_analyzer.infrastructure.repositories.mchd_repository import (
+    MchdRepository,
+)
 
 
 @dataclass
@@ -62,6 +66,8 @@ class ApplicationContainer:
     employees: EmployeeService | None = None
     audit: AuditService | None = None
     certificate_files: CertificateFileRepository | None = None
+    monitoring: MonitoringService | None = None
+    mchd_repository: MchdRepository | None = None
 
     def close(self) -> None:
         """Освобождает занятые ресурсы и закрывает соединение с базой данных."""
@@ -115,10 +121,17 @@ def create_application(config_path=None, *, settings=None) -> ApplicationContain
             employee_service=employee_service,
         )
         reports = ReportService()
-        mchds = MchdService()
+        mchd_repo = MchdRepository(database.sessions)
+        mchds = MchdService(repository=mchd_repo)
         notifications = PushNotificationManager()
         request_repo = CertificateRequestRepository(database.sessions)
         request_service = CertificateRequestService(request_repo, employee_repo)
+        monitoring_service = MonitoringService(
+            certificate_service=certificates,
+            report_service=reports,
+            notification_manager=notifications,
+            settings=settings,
+        )
 
         return ApplicationContainer(
             settings=settings,
@@ -132,7 +145,10 @@ def create_application(config_path=None, *, settings=None) -> ApplicationContain
             employees=employee_service,
             audit=audit_service,
             certificate_files=file_repo,
+            monitoring=monitoring_service,
+            mchd_repository=mchd_repo,
         )
+
     except Exception:
         database.close()
         raise

@@ -9,6 +9,10 @@ from certificate_analyzer.application.services.certificate_service import (
 )
 from certificate_analyzer.application.services.employee_service import EmployeeService
 from certificate_analyzer.application.services.mchd_service import MchdService
+from certificate_analyzer.application.services.monitoring_service import (
+    MonitoringResult,
+    MonitoringService,
+)
 from certificate_analyzer.application.services.notification_service import (
     PushNotificationManager,
 )
@@ -21,7 +25,10 @@ __all__ = [
     "CertificateService",
     "EmployeeService",
     "MchdService",
+    "MonitoringResult",
+    "MonitoringService",
     "PushNotificationManager",
     "PhoneBook",
     "ReportService",
 ]
+

@@ -11,6 +11,7 @@ class CertificateRequestStatus(str, Enum):
     IN_PROGRESS = "IN_PROGRESS"
     ISSUED = "ISSUED"
     RECEIVED = "RECEIVED"
+    PROCESSED = "PROCESSED"
     REJECTED = "REJECTED"
     CANCELLED = "CANCELLED"
 
@@ -27,6 +28,7 @@ class CertificateRequestStatus(str, Enum):
             CertificateRequestStatus.IN_PROGRESS: "В работе",
             CertificateRequestStatus.ISSUED: "Выпущен",
             CertificateRequestStatus.RECEIVED: "Получен",
+            CertificateRequestStatus.PROCESSED: "Обработана",
             CertificateRequestStatus.REJECTED: "Отклонена",
             CertificateRequestStatus.CANCELLED: "Аннулирована",
         }

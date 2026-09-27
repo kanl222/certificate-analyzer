@@ -1,18 +1,23 @@
-import os
-import tkinter as tk
+"""Представление вкладки машиночитаемых доверенностей (МЧД) и диалоговые окна."""
+
 from datetime import UTC, datetime
+import os
+from pathlib import Path
+import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+from typing import Any, Callable
 
 import pyperclip
 
-from certificate_analyzer.infrastructure.config.config_loader import load_settings
+from certificate_analyzer.application.dto.mchd_dto import mchd_to_dict
+from certificate_analyzer.infrastructure.config.config_loader import (
+    load_settings,
+)
 from certificate_analyzer.infrastructure.mchd.merger import MCHDMerger
 from certificate_analyzer.infrastructure.platform.base import open_path
 from certificate_analyzer.presentation.gui.styles import (
     ACCENT_COLOR,
     BG_COLOR,
-    BUTTON_COLOR,
-    BUTTON_HOVER,
     CARD_BG_COLOR,
     CARD_BORDER_COLOR,
     EXPIRED_COLOR,
@@ -27,13 +32,22 @@ from certificate_analyzer.presentation.gui.styles import (
 
 
 class AuthoritiesViewWindow:
-    def __init__(self, parent, merged_data):
+    """Окно детального просмотра объединенных полномочий нескольких МЧД."""
+
+    def __init__(self, parent: tk.Widget, merged_data: dict[str, Any]) -> None:
+        """Инициализирует окно просмотра полномочий.
+
+        Args:
+            parent: Родительский виджет.
+            merged_data: Словарь с объединенными данными кодов полномочий.
+        """
         self.parent = parent
         self.merged_data = merged_data
-        self.window = None
+        self.window: tk.Toplevel | None = None
         self._create_window()
 
-    def _create_window(self):
+    def _create_window(self) -> None:
+        """Создает и настраивает Toplevel окно."""
         if self.window and self.window.winfo_exists():
             self.window.lift()
             self.window.focus_force()
@@ -46,202 +60,562 @@ class AuthoritiesViewWindow:
         self.setup_ui()
         self.window.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    def _on_close(self):
+    def _on_close(self) -> None:
+        """Закрывает окно."""
         if self.window:
             self.window.destroy()
             self.window = None
 
-    def setup_ui(self):
+    def setup_ui(self) -> None:
+        """Создает элементы управления и список кодов полномочий."""
+        if not self.window:
+            return
+
         main_frame = ttk.Frame(self.window, padding=15)
         main_frame.pack(fill=tk.BOTH, expand=True)
+
         title_frame = ttk.Frame(main_frame)
         title_frame.pack(fill=tk.X, pady=(0, 15))
         ttk.Label(
-            title_frame, text="Объединенные полномочия", font=(UI_FONT, 14, "bold")
-        ).pack(anchor=tk.W)
-        ttk.Label(
             title_frame,
-            text=f"ФИО: {self.merged_data.get('person_name', 'Неизвестно')}",
-            font=(UI_FONT, 11),
-            foreground=ACCENT_COLOR,
+            text="Объединенные полномочия",
+            font=(UI_FONT, 14, "bold"),
         ).pack(anchor=tk.W)
-        info_frame = ttk.LabelFrame(main_frame, text=" Исходные файлы ", padding=10)
-        info_frame.pack(fill=tk.X, pady=(0, 15))
+
+        info_frame = ttk.LabelFrame(
+            main_frame, text=" Исходные файлы ", padding=10
+        )
+        info_frame.pack(fill=tk.X, pady=(0, 10))
         files_text = "\n".join(
             [f"• {f}" for f in self.merged_data.get("file_names", [])]
         )
-        ttk.Label(info_frame, text=files_text, font=(UI_FONT, 9)).pack(anchor=tk.W)
+        ttk.Label(info_frame, text=files_text, font=(UI_FONT, 9)).pack(
+            anchor=tk.W
+        )
+
         stats_frame = ttk.Frame(main_frame)
         stats_frame.pack(fill=tk.X, pady=(0, 10))
-        stats_text = f"Всего файлов: {self.merged_data.get('total_files', 0)} | Уникальных кодов: {self.merged_data.get('unique_codes_count', 0)}"
-        ttk.Label(stats_frame, text=stats_text, font=(UI_FONT, 10, "bold")).pack()
-        codes_frame = ttk.LabelFrame(main_frame, text=" Коды полномочий ", padding=10)
+        stats_text = (
+            f"Всего файлов: {self.merged_data.get('total_files', 0)} | "
+            f"Уникальных кодов: {self.merged_data.get('unique_codes_count', 0)}"
+        )
+        ttk.Label(
+            stats_frame, text=stats_text, font=(UI_FONT, 10, "bold")
+        ).pack()
+
+        codes_frame = ttk.LabelFrame(
+            main_frame, text=" Коды полномочий ", padding=10
+        )
         codes_frame.pack(fill=tk.BOTH, expand=True)
+
         listbox_frame = ttk.Frame(codes_frame)
         listbox_frame.pack(fill=tk.BOTH, expand=True)
+
         self.codes_listbox = tk.Listbox(
-            listbox_frame, height=12, selectmode=tk.EXTENDED, font=("Courier New", 10)
+            listbox_frame,
+            height=12,
+            selectmode=tk.EXTENDED,
+            font=("Courier New", 10),
         )
         self.codes_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
         scrollbar = ttk.Scrollbar(
             listbox_frame, orient=tk.VERTICAL, command=self.codes_listbox.yview
         )
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.codes_listbox.configure(yscrollcommand=scrollbar.set)
+
         for code in self.merged_data.get("codes", []):
             self.codes_listbox.insert(tk.END, code)
-        self.codes_listbox.bind("<Control-c>", self.copy_selected_codes_event)
-        self.codes_listbox.bind("<Control-C>", self.copy_selected_codes_event)
+
+        self.codes_listbox.bind(
+            "<Control-c>", lambda _: self.copy_selected_codes()
+        )
+        self.codes_listbox.bind(
+            "<Control-C>", lambda _: self.copy_selected_codes()
+        )
+
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill=tk.X, pady=(15, 0))
+
         ttk.Button(
             btn_frame,
-            text="📋 Копировать все коды",
+            text="Копировать все коды",
             command=self.copy_all_codes,
             style="Accent.TButton",
         ).pack(side=tk.LEFT, padx=5)
+
         ttk.Button(
             btn_frame,
-            text="📋 Копировать выбранные",
+            text="Копировать выбранные",
             command=self.copy_selected_codes,
             style="Accent.TButton",
         ).pack(side=tk.LEFT, padx=5)
+
         ttk.Button(
-            btn_frame, text="❌ Закрыть", command=self._on_close, style="Accent.TButton"
+            btn_frame,
+            text="Закрыть",
+            command=self._on_close,
+            style="Accent.TButton",
         ).pack(side=tk.RIGHT, padx=5)
 
-    def copy_all_codes(self):
+    def copy_all_codes(self) -> None:
+        """Копирует все полномочия в буфер обмена."""
         codes = self.merged_data.get("codes", [])
         if codes:
             pyperclip.copy("\n".join(codes))
-            messagebox.showinfo("Успех", f"Скопировано {len(codes)} кодов")
+            messagebox.showinfo(
+                "Успех", f"Скопировано {len(codes)} кодов", parent=self.window
+            )
 
-    def copy_selected_codes(self):
+    def copy_selected_codes(self) -> None:
+        """Копирует выделенные в списке коды в буфер обмена."""
         selected = self.codes_listbox.curselection()
         if not selected:
-            messagebox.showwarning("Внимание", "Выберите коды для копирования")
+            messagebox.showwarning(
+                "Внимание",
+                "Выберите коды для копирования",
+                parent=self.window,
+            )
             return
         codes = [self.codes_listbox.get(i) for i in selected]
         pyperclip.copy("\n".join(codes))
-        messagebox.showinfo("Успех", f"Скопировано {len(codes)} кодов")
-
-    def copy_selected_codes_event(self, event):
-        selected = self.codes_listbox.curselection()
-        if selected:
-            codes = [self.codes_listbox.get(i) for i in selected]
-            pyperclip.copy("\n".join(codes))
-            self.window.title(f"Скопировано {len(codes)} кодов")
-            self.window.after(
-                2000, lambda: self.window.title("Объединенные полномочия МЧД")
-            )
-            return "break"
-        return None
+        messagebox.showinfo(
+            "Успех", f"Скопировано {len(codes)} кодов", parent=self.window
+        )
 
 
-class MCHDTableWindow:
-    def __init__(self, parent, mchd_data):
+class MchdPersonalDataWindow:
+    """Окно карточки персональных данных и реквизитов МЧД."""
+
+    def __init__(self, parent: tk.Widget, mchd: dict[str, Any]) -> None:
+        """Инициализирует карточку доверенности.
+
+        Args:
+            parent: Родительский виджет.
+            mchd: Словарь с атрибутами МЧД.
+        """
         self.parent = parent
-        self.mchd_data = mchd_data
-        self.filtered_data = mchd_data.copy()
-        self.window = None
-        self.selected_items = []
-        self.sort_reverse = {}
+        self.mchd = mchd
+        self.window: tk.Toplevel | None = None
+        self._unbind_scroll = None
         self._create_window()
 
-    def _create_window(self):
-        if self.window and self.window.winfo_exists():
-            self.window.lift()
-            self.window.focus_force()
-            return
+    def _create_window(self) -> None:
+        """Создает Toplevel диалог просмотра реквизитов."""
+        has_issuer = (
+            self.mchd.get("issuer_org_name", "Не найдено") != "Не найдено"
+            or self.mchd.get("issuer_person_fullname", "Не найдено")
+            != "Не найдено"
+        )
+        width = 900 if has_issuer else 760
+        height = 760 if has_issuer else 620
 
         self.window = tk.Toplevel(self.parent)
-        self.window.title("Анализ МЧД - Машиночитаемые доверенности")
-        self.window.geometry("1400x800")
+        file_name = os.path.basename(self.mchd.get("file_name", ""))
+        self.window.title(f"Карточка МЧД — {file_name}")
+        self.window.geometry(f"{width}x{height}")
         self.window.configure(bg=BG_COLOR)
-        self.setup_ui()
-        self.check_for_duplicates()
+        self.window.minsize(700, 550)
+
+        self._setup_ui()
         self.window.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    def _on_close(self):
+    def _on_close(self) -> None:
+        """Безопасно закрывает карточку и снимает биндинги мыши."""
+        if self._unbind_scroll:
+            self._unbind_scroll()
+            self._unbind_scroll = None
         if self.window:
             self.window.destroy()
             self.window = None
 
-    def setup_ui(self):
-        main_frame = ttk.Frame(self.window, padding=10)
+    def _setup_ui(self) -> None:
+        """Создает скроллируемые карточки с реквизитами МЧД."""
+        if not self.window:
+            return
+
+        main_frame = tk.Frame(self.window, bg=BG_COLOR, padx=16, pady=16)
         main_frame.pack(fill=tk.BOTH, expand=True)
-        title_frame = ttk.Frame(main_frame)
-        title_frame.pack(fill=tk.X, pady=(0, 10))
-        ttk.Label(
-            title_frame,
-            text="Машиночитаемые доверенности (МЧД)",
+
+        title_frame = tk.Frame(main_frame, bg=BG_COLOR)
+        title_frame.pack(fill=tk.X, pady=(0, 15))
+
+        title_text_frame = tk.Frame(title_frame, bg=BG_COLOR)
+        title_text_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        tk.Label(
+            title_text_frame,
+            text="Карточка машиночитаемой доверенности",
             font=(UI_FONT, 16, "bold"),
-        ).pack(side=tk.LEFT)
-        ttk.Label(
-            title_frame,
-            text=f"Всего: {len(self.mchd_data)}",
-            font=(UI_FONT, 12),
-            foreground=ACCENT_COLOR,
-        ).pack(side=tk.RIGHT, padx=10)
-        search_frame = ttk.Frame(main_frame)
-        search_frame.pack(fill=tk.X, pady=(0, 10))
-        ttk.Label(
-            search_frame, text="🔍 Поиск по фамилии:", font=(UI_FONT, 10)
-        ).pack(side=tk.LEFT)
-        self.search_var = tk.StringVar()
-        self.search_var.trace_add("write", self.on_search)
-        search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=30)
-        search_entry.pack(side=tk.LEFT, padx=(5, 10))
+            bg=BG_COLOR,
+            fg=MCHD_COLOR,
+        ).pack(anchor=tk.W)
+
+        file_path = self.mchd.get("file_name", "—")
+        tk.Label(
+            title_text_frame,
+            text=f"Файл: {os.path.basename(file_path)}",
+            font=(UI_FONT, 9),
+            bg=BG_COLOR,
+            fg=ACCENT_COLOR,
+        ).pack(anchor=tk.W)
+
+        canvas_frame = tk.Frame(main_frame, bg=BG_COLOR)
+        canvas_frame.pack(fill=tk.BOTH, expand=True)
+
+        canvas = tk.Canvas(canvas_frame, bg=BG_COLOR, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(
+            canvas_frame, orient=tk.VERTICAL, command=canvas.yview
+        )
+        scrollable_frame = tk.Frame(canvas, bg=BG_COLOR)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda _: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        def add_info_card(
+            title: str, items: list[tuple[str, Any]]
+        ) -> None:
+            card = tk.Frame(
+                scrollable_frame,
+                bg=CARD_BG_COLOR,
+                relief="flat",
+                bd=0,
+                highlightthickness=1,
+                highlightbackground=CARD_BORDER_COLOR,
+            )
+            card.pack(fill=tk.X, pady=(0, 12))
+            hdr = tk.Frame(card, bg=MCHD_COLOR, height=36)
+            hdr.pack(fill=tk.X)
+            hdr.pack_propagate(False)
+
+            tk.Label(
+                hdr,
+                text=title,
+                font=(UI_FONT, 10, "bold"),
+                fg="white",
+                bg=MCHD_COLOR,
+            ).pack(side=tk.LEFT, padx=12, pady=6)
+
+            body = tk.Frame(card, bg=CARD_BG_COLOR, padx=12, pady=8)
+            body.pack(fill=tk.X)
+
+            for label, value in items:
+                row = tk.Frame(body, bg=CARD_BG_COLOR)
+                row.pack(fill=tk.X, pady=3)
+                tk.Label(
+                    row,
+                    text=f"{label}:",
+                    font=(UI_FONT, 9, "bold"),
+                    fg=MCHD_COLOR,
+                    bg=CARD_BG_COLOR,
+                    width=22,
+                    anchor="w",
+                ).pack(side=tk.LEFT, padx=(0, 8))
+
+                val_str = str(value) if value else "—"
+                lbl_val = tk.Label(
+                    row,
+                    text=val_str,
+                    font=(UI_FONT, 9),
+                    bg=CARD_BG_COLOR,
+                    fg=TEXT_COLOR,
+                    anchor="w",
+                    justify="left",
+                )
+                lbl_val.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # 1. Основные реквизиты
+        add_info_card(
+            "Реквизиты документа",
+            [
+                (
+                    "Номер доверенности",
+                    self.mchd.get("doc_number", "Не найдено"),
+                ),
+                ("Дата выдачи", self.mchd.get("issue_date", "Не найдена")),
+                (
+                    "Срок действия",
+                    self.mchd.get("expiry_date", "Не найдена"),
+                ),
+                ("Статус", self.mchd.get("status", "Не определен")),
+            ],
+        )
+
+        # 2. Доверитель (организация)
+        org_name = self.mchd.get(
+            "issuer_org_name", self.mchd.get("principal_name", "Не найдено")
+        )
+        org_inn = self.mchd.get(
+            "issuer_org_inn", self.mchd.get("principal_inn", "Не найден")
+        )
+        add_info_card(
+            "Сведения о доверителе",
+            [
+                ("Наименование организации", org_name),
+                ("ИНН организации", org_inn),
+                ("КПП", self.mchd.get("issuer_org_kpp", "—")),
+                ("ОГРН", self.mchd.get("issuer_org_ogrn", "—")),
+            ],
+        )
+
+        # 3. Представитель (физическое лицо)
+        rep_name = self.mchd.get(
+            "full_name", self.mchd.get("representative_fio", "Не найдено")
+        )
+        rep_inn = self.mchd.get(
+            "inn", self.mchd.get("representative_inn", "Не найден")
+        )
+        rep_snils = self.mchd.get(
+            "snils", self.mchd.get("representative_snils", "Не найден")
+        )
+        add_info_card(
+            "Сведения о представителе",
+            [
+                ("ФИО представителя", rep_name),
+                ("ИНН представителя", rep_inn),
+                ("СНИЛС представителя", rep_snils),
+                (
+                    "Дата рождения",
+                    self.mchd.get("representative_birthdate", "—"),
+                ),
+            ],
+        )
+
+        # 4. Полномочия
+        codes = self.mchd.get("authority_codes", [])
+        names = self.mchd.get("authority_names", [])
+        auth_items = []
+        if codes:
+            for i, c in enumerate(codes):
+                c_name = names[i] if i < len(names) and names[i] else ""
+                val = f"{c} ({c_name})" if c_name else c
+                auth_items.append((f"Полномочие #{i + 1}", val))
+        else:
+            auth_items.append(("Полномочия", "Нет кодов"))
+        add_info_card("Полномочия", auth_items)
+
+        # Кнопки управления
+        btn_bar = ttk.Frame(main_frame)
+        btn_bar.pack(fill=tk.X, pady=(12, 0))
+
         ttk.Button(
-            search_frame,
-            text="✖ Сбросить",
-            command=self.clear_search,
+            btn_bar, text="Закрыть", command=self._on_close, style="Accent.TButton"
+        ).pack(side="right")
+
+        # Безопасный скроллинг мыши
+        def _on_mousewheel(event: tk.Event) -> None:
+            try:
+                if not canvas.winfo_exists():
+                    return
+                if event.num == 4:
+                    canvas.yview_scroll(-1, "units")
+                elif event.num == 5:
+                    canvas.yview_scroll(1, "units")
+                elif getattr(event, "delta", 0):
+                    canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            except (tk.TclError, RuntimeError):
+                pass
+
+        def _bind(_event=None):
+            try:
+                canvas.bind_all("<MouseWheel>", _on_mousewheel)
+                canvas.bind_all("<Button-4>", _on_mousewheel)
+                canvas.bind_all("<Button-5>", _on_mousewheel)
+            except (tk.TclError, RuntimeError):
+                pass
+
+        def _unbind(_event=None):
+            try:
+                canvas.unbind_all("<MouseWheel>")
+                canvas.unbind_all("<Button-4>")
+                canvas.unbind_all("<Button-5>")
+            except (tk.TclError, RuntimeError):
+                pass
+
+        self._unbind_scroll = _unbind
+        canvas.bind("<Enter>", _bind)
+        canvas.bind("<Leave>", _unbind)
+        scrollable_frame.bind("<Enter>", _bind)
+        scrollable_frame.bind("<Leave>", _unbind)
+        self.window.bind("<MouseWheel>", _on_mousewheel)
+
+
+class MchdView(ttk.Frame):
+    """Представление вкладки учета и анализа машиночитаемых доверенностей (МЧД)."""
+
+    COLUMNS = (
+        "file_name",
+        "doc_number",
+        "issue_date",
+        "expiry_date",
+        "full_name",
+        "principal_name",
+        "authority_codes",
+        "status",
+    )
+
+    COLUMN_HEADINGS = {
+        "file_name": ("Файл", 150),
+        "doc_number": ("Номер доверенности", 160),
+        "issue_date": ("Дата выдачи", 95),
+        "expiry_date": ("Срок действия", 95),
+        "full_name": ("ФИО представителя", 190),
+        "principal_name": ("Организация-доверитель", 190),
+        "authority_codes": ("Полномочия", 220),
+        "status": ("Статус", 110),
+    }
+
+    def __init__(
+        self,
+        parent: tk.Widget,
+        application: Any = None,
+        on_message: Callable[[str], None] | None = None,
+        mchd_data: list[dict[str, Any]] | None = None,
+        **kwargs,
+    ) -> None:
+        """Инициализирует представление вкладки МЧД.
+
+        Args:
+            parent: Родительский виджет Tkinter.
+            application: Контейнер сервисов приложения ApplicationContainer.
+            on_message: Функция вывода сообщений в статусную строку.
+            mchd_data: Список заранее распарсенных данных МЧД (опционально).
+            **kwargs: Дополнительные параметры ttk.Frame.
+        """
+        super().__init__(parent, **kwargs)
+        self.app = application
+        self.on_message = on_message or (lambda _: None)
+        self.mchd_data: list[dict[str, Any]] = (
+            list(mchd_data) if mchd_data is not None else []
+        )
+        self.filtered_data: list[dict[str, Any]] = list(self.mchd_data)
+        self.selected_items: tuple[str, ...] = ()
+        self.sort_reverse: dict[str, bool] = {}
+        self._row_to_mchd: dict[str, dict[str, Any]] = {}
+
+        self._build_ui()
+        if self.app is not None and mchd_data is None:
+            self.refresh()
+        elif self.mchd_data:
+            self.apply_filters()
+            self.check_for_duplicates()
+
+    def _build_ui(self) -> None:
+        """Создает элементы управления, панель фильтров, таблицу и блок деталей."""
+        # 1. Верхняя панель действий (Toolbar)
+        toolbar = ttk.Frame(self, style="Panel.TFrame", padding=(8, 6))
+        toolbar.pack(fill=tk.X, pady=(0, 8))
+
+        ttk.Button(
+            toolbar,
+            text="Сканировать папку…",
+            command=self.scan_folder,
             style="Accent.TButton",
-            width=12,
+        ).pack(side=tk.LEFT, padx=(0, 5))
+
+        ttk.Button(
+            toolbar,
+            text="Импортировать XML…",
+            command=self.import_files,
+            style="Toolbar.TButton",
+        ).pack(side=tk.LEFT, padx=3)
+        ttk.Button(
+            toolbar,
+            text="Экспорт в Excel",
+            command=self.export_to_excel,
+            style="Toolbar.TButton",
+        ).pack(side=tk.LEFT, padx=3)
+
+        ttk.Button(
+            toolbar,
+            text="Обновить",
+            command=self.refresh,
+            style="Toolbar.TButton",
+        ).pack(
+            side=tk.LEFT, padx=3
+        )
+
+        # 2. Панель поиска и фильтрации
+        filter_bar = ttk.Frame(self, style="Panel.TFrame", padding=(8, 6))
+        filter_bar.pack(fill=tk.X, pady=(0, 8))
+
+        ttk.Label(filter_bar, text="Поиск:", style="Panel.TLabel").pack(
+            side=tk.LEFT, padx=(0, 4)
+        )
+        self.search_var = tk.StringVar()
+        self.search_var.trace_add("write", lambda *_: self.apply_filters())
+        search_entry = ttk.Entry(filter_bar, textvariable=self.search_var, width=28)
+        search_entry.pack(side=tk.LEFT, padx=(0, 10))
+
+        ttk.Label(filter_bar, text="Статус:", style="Panel.TLabel").pack(
+            side=tk.LEFT, padx=(0, 4)
+        )
+        self.status_var = tk.StringVar(value="Все статусы")
+        status_combo = ttk.Combobox(
+            filter_bar,
+            textvariable=self.status_var,
+            values=[
+                "Все статусы",
+                "Действует",
+                "Истекает",
+                "Просрочен",
+                "Отозвана",
+            ],
+            state="readonly",
+            width=14,
+        )
+        status_combo.pack(side=tk.LEFT, padx=(0, 8))
+        status_combo.bind("<<ComboboxSelected>>", lambda _: self.apply_filters())
+
+        ttk.Button(
+            filter_bar,
+            text="Сбросить",
+            command=self.clear_search,
+            width=10,
+            style="Toolbar.TButton",
         ).pack(side=tk.LEFT)
-        self.search_result_label = ttk.Label(
-            search_frame,
+
+        self.stats_label = ttk.Label(
+            filter_bar,
             text="",
-            font=(UI_FONT, 9, "italic"),
+            font=(UI_FONT, 9, "bold"),
             foreground=ACCENT_COLOR,
         )
-        self.search_result_label.pack(side=tk.RIGHT, padx=(20, 0))
-        stats_frame = ttk.Frame(main_frame)
-        stats_frame.pack(fill=tk.X, pady=(0, 10))
-        expired = sum(1 for m in self.mchd_data if m.get("status") == "Просрочен")
-        warning = sum(
-            1
-            for m in self.mchd_data
-            if m.get("status") and "Истекает" in m.get("status", "")
-        )
-        valid = sum(1 for m in self.mchd_data if m.get("status") == "Действует")
-        stats_text = f"Действуют: {valid} | Истекают: {warning} | Просрочены: {expired}"
-        ttk.Label(stats_frame, text=stats_text, font=(UI_FONT, 11, "bold")).pack()
-        self.duplicate_frame = ttk.Frame(main_frame)
-        self.duplicate_frame.pack(fill=tk.X, pady=(0, 10))
-        table_frame = ttk.Frame(main_frame)
+        self.stats_label.pack(side=tk.RIGHT, padx=5)
+
+        # 3. Баннер предупреждения о дубликатах доверенностей
+        self.duplicate_frame = ttk.Frame(self)
+        self.duplicate_frame.pack(fill=tk.X, pady=(0, 6))
+
+        # 4. Основная таблица МЧД (Treeview)
+        table_frame = ttk.Frame(self)
         table_frame.pack(fill=tk.BOTH, expand=True)
-        self.columns = (
-            "Файл",
-            "Номер доверенности",
-            "Дата выдачи",
-            "Срок действия",
-            "ФИО",
-            "Коды полномочий",
-            "Статус",
-        )
+
         self.tree = ttk.Treeview(
             table_frame,
-            columns=self.columns,
+            columns=self.COLUMNS,
             show="headings",
-            height=12,
             selectmode=tk.EXTENDED,
         )
-        col_widths = [150, 120, 90, 90, 200, 300, 100]
-        for col, width in zip(self.columns, col_widths):
-            self.tree.heading(col, text=col, command=lambda c=col: self.sort_column(c))
-            self.tree.column(col, width=width, anchor=tk.W, minwidth=50)
-            self.sort_reverse[col] = False
+
+        for col_id in self.COLUMNS:
+            title, width = self.COLUMN_HEADINGS[col_id]
+            self.tree.heading(
+                col_id,
+                text=title,
+                command=lambda c=col_id: self.sort_column(c),
+            )
+            self.tree.column(col_id, width=width, minwidth=60, anchor=tk.W)
+            self.sort_reverse[col_id] = False
+
         scroll_y = ttk.Scrollbar(
             table_frame, orient=tk.VERTICAL, command=self.tree.yview
         )
@@ -250,10 +624,11 @@ class MCHDTableWindow:
             table_frame, orient=tk.HORIZONTAL, command=self.tree.xview
         )
         scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
-        self.tree.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
+        self.tree.configure(
+            yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set
+        )
         self.tree.pack(fill=tk.BOTH, expand=True)
-        self.tree.bind("<<TreeviewSelect>>", self.on_select)
-        self.tree.bind("<Double-1>", self.on_double_click)
+
         self.tree.tag_configure(
             "expired", background=EXPIRED_COLOR, foreground=EXPIRED_TEXT
         )
@@ -262,812 +637,572 @@ class MCHDTableWindow:
         )
         self.tree.tag_configure("normal", background=MCHD_LIGHT_COLOR)
         self.tree.tag_configure("duplicate_name", background="#fff3cd")
-        self.populate_table()
-        info_frame = ttk.LabelFrame(main_frame, text=" Информация ", padding=10)
-        info_frame.pack(fill=tk.X, pady=(10, 0))
-        info_columns_frame = ttk.Frame(info_frame)
-        info_columns_frame.pack(fill=tk.X, expand=True)
-        left_info = ttk.Frame(info_columns_frame)
-        left_info.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.selected_info_label = ttk.Label(
-            left_info, text="Выбрано: 0 МЧД", font=(UI_FONT, 10, "bold")
+
+        self.tree.bind("<<TreeviewSelect>>", self.on_select)
+        self.tree.bind("<Double-1>", self.on_double_click)
+
+        # Контекстное меню таблицы
+        self._tree_menu = tk.Menu(self, tearoff=0)
+        self._tree_menu.add_command(
+            label="Карточка МЧД...", command=self.view_personal_data
         )
-        self.selected_info_label.pack(anchor=tk.W)
-        self.person_info_label = ttk.Label(
-            left_info, text="", font=(UI_FONT, 9), foreground=ACCENT_COLOR
-        )
-        self.person_info_label.pack(anchor=tk.W)
-        right_info = ttk.Frame(info_columns_frame)
-        right_info.pack(side=tk.RIGHT, fill=tk.Y)
-        self.view_auth_btn = ttk.Button(
-            right_info,
-            text="👁 Просмотр кодов",
+        self._tree_menu.add_command(
+            label="Просмотр кодов полномочий...",
             command=self.view_merged_authorities,
-            style="Accent.TButton",
-            state=tk.DISABLED,
         )
-        self.view_auth_btn.pack(side=tk.RIGHT, padx=5)
-        self.view_personal_btn = ttk.Button(
-            right_info,
-            text="👤 Персональные данные",
-            command=self.view_personal_data,
-            style="Accent.TButton",
-            state=tk.DISABLED,
+        self._tree_menu.add_command(
+            label="Открыть XML файл", command=self.open_xml_file
         )
-        self.view_personal_btn.pack(side=tk.RIGHT, padx=5)
-        self.merge_btn = ttk.Button(
-            right_info,
-            text="🔄 Объединить выбранные МЧД",
-            command=self.merge_selected,
-            style="Accent.TButton",
-            state=tk.DISABLED,
+        self._tree_menu.add_command(
+            label="Показать в проводнике", command=self.reveal_file
         )
-        self.merge_btn.pack(side=tk.RIGHT, padx=5)
+        self._tree_menu.add_separator()
+        self._tree_menu.add_command(
+            label="Объединить выбранные МЧД...", command=self.merge_selected
+        )
+        self._tree_menu.add_separator()
+        self._tree_menu.add_command(
+            label="Удалить из учета", command=self.delete_selected
+        )
+
+        def _on_context(event: tk.Event) -> None:
+            item = self.tree.identify_row(event.y)
+            if item:
+                if item not in self.tree.selection():
+                    self.tree.selection_set(item)
+                self.on_select()
+                self._tree_menu.post(event.x_root, event.y_root)
+
+        self.tree.bind("<Button-3>", _on_context)
+
+        # 5. Нижняя панель сведений и кодов полномочий
+        bottom_frame = ttk.LabelFrame(
+            self, text=" Полномочия выбранных МЧД ", padding=8
+        )
+        bottom_frame.pack(fill=tk.X, pady=(8, 0))
+
+        info_line = ttk.Frame(bottom_frame)
+        info_line.pack(fill=tk.X, pady=(0, 4))
+
+        self.selected_info_label = ttk.Label(
+            info_line, text="Выбрано: 0 МЧД", font=(UI_FONT, 9, "bold")
+        )
+        self.selected_info_label.pack(side=tk.LEFT)
+
+        self.person_info_label = ttk.Label(
+            info_line, text="", font=(UI_FONT, 9), foreground=ACCENT_COLOR
+        )
+        self.person_info_label.pack(side=tk.LEFT, padx=12)
+
         ttk.Button(
-            right_info,
-            text="📋 Копировать коды",
+            info_line,
+            text="Копировать коды",
             command=self.copy_selected_codes,
-            style="Accent.TButton",
-        ).pack(side=tk.RIGHT, padx=5)
-        codes_frame = ttk.LabelFrame(
-            main_frame, text=" Коды полномочий выбранных МЧД ", padding=10
-        )
-        codes_frame.pack(fill=tk.X, pady=(10, 0))
-        listbox_frame = ttk.Frame(codes_frame)
-        listbox_frame.pack(fill=tk.X, expand=True)
+        ).pack(side=tk.RIGHT)
+
+        listbox_box = ttk.Frame(bottom_frame)
+        listbox_box.pack(fill=tk.X, expand=True)
+
         self.codes_listbox = tk.Listbox(
-            listbox_frame, height=6, selectmode=tk.SINGLE, font=("Courier New", 9)
+            listbox_box, height=4, selectmode=tk.SINGLE, font=("Courier New", 9)
         )
         self.codes_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scroll_codes = ttk.Scrollbar(
-            listbox_frame, orient=tk.VERTICAL, command=self.codes_listbox.yview
+
+        scroll_c = ttk.Scrollbar(
+            listbox_box, orient=tk.VERTICAL, command=self.codes_listbox.yview
         )
-        scroll_codes.pack(side=tk.RIGHT, fill=tk.Y)
-        self.codes_listbox.configure(yscrollcommand=scroll_codes.set)
-        self.codes_listbox.bind("<Control-c>", self.copy_from_listbox)
-        self.codes_listbox.bind("<Control-C>", self.copy_from_listbox)
-        btn_frame = ttk.Frame(main_frame)
-        btn_frame.pack(fill=tk.X, pady=(10, 0))
-        ttk.Button(
-            btn_frame,
-            text="📊 Экспорт в Excel",
-            command=self.export_to_excel,
-            style="Accent.TButton",
-        ).pack(side=tk.LEFT, padx=5)
-        ttk.Button(
-            btn_frame, text="❌ Закрыть", command=self._on_close, style="Accent.TButton"
-        ).pack(side=tk.RIGHT, padx=5)
+        scroll_c.pack(side=tk.RIGHT, fill=tk.Y)
+        self.codes_listbox.configure(yscrollcommand=scroll_c.set)
 
-    def copy_from_listbox(self, event):
-        selected = self.codes_listbox.curselection()
-        if selected:
-            codes = [self.codes_listbox.get(i) for i in selected]
-            pyperclip.copy("\n".join(codes))
-            self.window.title(f"Скопировано {len(codes)} кодов - Анализ МЧД")
-            self.window.after(
-                2000,
-                lambda: self.window.title("Анализ МЧД - Машиночитаемые доверенности"),
-            )
-            return "break"
-        return None
+    def refresh(self) -> None:
+        """Перечитывает данные МЧД из базы данных и обновляет таблицу."""
+        if hasattr(self.app, "mchds") and self.app.mchds:
+            try:
+                docs = self.app.mchds.list_all()
+                self.mchd_data = [mchd_to_dict(doc).to_dict() for doc in docs]
+            except Exception as exc:
+                self.on_message(f"Ошибка загрузки МЧД: {exc}")
 
-    def view_personal_data(self):
-        selected_mchd = self.get_selected_mchd_objects()
-        if len(selected_mchd) != 1:
-            messagebox.showwarning(
-                "Внимание", "Выберите ровно одну МЧД для просмотра персональных данных"
-            )
-            return
-        mchd = selected_mchd[0]
-        has_issuer_data = (
-            mchd.get("issuer_org_name", "Не найдено") != "Не найдено"
-            or mchd.get("issuer_person_fullname", "Не найдено") != "Не найдено"
-        )
-        window_width = 900 if has_issuer_data else 750
-        window_height = 750 if has_issuer_data else 600
+        self.apply_filters()
+        self.check_for_duplicates()
+        self.on_message(f"МЧД загружено: {len(self.mchd_data)}")
 
-        data_window = tk.Toplevel(self.window)
-        data_window.title(
-            f"Персональные данные МЧД - {os.path.basename(mchd.get('file_name', ''))}"
-        )
-        data_window.geometry(f"{window_width}x{window_height}")
-        data_window.configure(bg=BG_COLOR)
-        data_window.minsize(750, 600)
+    def apply_filters(self, *args) -> None:
+        """Применяет текстовый поиск и фильтрацию по статусу к списку МЧД."""
+        query = self.search_var.get().strip().casefold()
+        status_filter = self.status_var.get()
 
-        main_frame = tk.Frame(data_window, bg=BG_COLOR, padx=20, pady=20)
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        self.filtered_data = []
+        for mchd in self.mchd_data:
+            st = mchd.get("status", "")
+            if status_filter != "Все статусы":
+                if status_filter == "Истекает" and "Истекает" not in st:
+                    continue
+                elif status_filter != "Истекает" and status_filter not in st:
+                    continue
 
-        title_frame = tk.Frame(main_frame, bg=BG_COLOR)
-        title_frame.pack(fill=tk.X, pady=(0, 20))
+            if query:
+                full_name = str(mchd.get("full_name", "")).casefold()
+                doc_num = str(mchd.get("doc_number", "")).casefold()
+                org = str(
+                    mchd.get(
+                        "issuer_org_name", mchd.get("principal_name", "")
+                    )
+                ).casefold()
+                inn = str(mchd.get("inn", "")).casefold()
+                if (
+                    query not in full_name
+                    and query not in doc_num
+                    and query not in org
+                    and query not in inn
+                ):
+                    continue
 
-        tk.Label(
-            title_frame, text="📄", font=(UI_FONT, 32), bg=BG_COLOR, fg=MCHD_COLOR
-        ).pack(side=tk.LEFT, padx=(0, 15))
-        title_text_frame = tk.Frame(title_frame, bg=BG_COLOR)
-        title_text_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            self.filtered_data.append(mchd)
 
-        tk.Label(
-            title_text_frame,
-            text="Персональные данные",
-            font=(UI_FONT, 18, "bold"),
-            bg=BG_COLOR,
-            fg=MCHD_COLOR,
-        ).pack(anchor=tk.W)
-        tk.Label(
-            title_text_frame,
-            text="Машиночитаемая доверенность",
-            font=(UI_FONT, 10),
-            bg=BG_COLOR,
-            fg=ACCENT_COLOR,
-        ).pack(anchor=tk.W)
-
-        file_frame = tk.Frame(
-            main_frame,
-            bg=CARD_BG_COLOR,
-            relief="flat",
-            bd=1,
-            highlightthickness=1,
-            highlightbackground=CARD_BORDER_COLOR,
-        )
-        file_frame.pack(fill=tk.X, pady=(0, 15))
-        file_inner = tk.Frame(file_frame, bg=CARD_BG_COLOR, padx=15, pady=10)
-        file_inner.pack(fill=tk.X)
-
-        tk.Label(
-            file_inner,
-            text="📁",
-            font=(UI_FONT, 14),
-            bg=CARD_BG_COLOR,
-            fg=ACCENT_COLOR,
-        ).pack(side=tk.LEFT, padx=(0, 10))
-        tk.Label(
-            file_inner,
-            text=os.path.basename(mchd.get("file_name", "")),
-            font=(UI_FONT, 10, "italic"),
-            bg=CARD_BG_COLOR,
-            fg=ACCENT_COLOR,
-        ).pack(side=tk.LEFT)
-
-        canvas_frame = tk.Frame(main_frame, bg=BG_COLOR)
-        canvas_frame.pack(fill=tk.BOTH, expand=True)
-        canvas = tk.Canvas(canvas_frame, bg=BG_COLOR, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(
-            canvas_frame, orient=tk.VERTICAL, command=canvas.yview
-        )
-        scrollable_frame = tk.Frame(canvas, bg=BG_COLOR)
-        scrollable_frame.bind(
-            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        def create_info_card(parent, title, icon, data_list, color=MCHD_COLOR):
-            card = tk.Frame(
-                parent,
-                bg=CARD_BG_COLOR,
-                relief="flat",
-                bd=0,
-                highlightthickness=1,
-                highlightbackground=CARD_BORDER_COLOR,
-            )
-            card.pack(fill=tk.X, pady=(0, 15))
-            header = tk.Frame(card, bg=color, height=40)
-            header.pack(fill=tk.X)
-            header.pack_propagate(False)
-            tk.Label(
-                header,
-                text=f" {icon} {title}",
-                font=(UI_FONT, 11, "bold"),
-                fg="white",
-                bg=color,
-            ).pack(side=tk.LEFT, padx=15, pady=8)
-            body = tk.Frame(card, bg=CARD_BG_COLOR, padx=15, pady=10)
-            body.pack(fill=tk.X)
-            for label, value in data_list:
-                row = tk.Frame(body, bg=CARD_BG_COLOR)
-                row.pack(fill=tk.X, pady=5)
-                tk.Label(
-                    row,
-                    text=f"{label}:",
-                    font=(UI_FONT, 9, "bold"),
-                    fg=color,
-                    bg=CARD_BG_COLOR,
-                    width=24,
-                    anchor="w",
-                ).pack(side=tk.LEFT, padx=(0, 10))
-                value_str = str(value) if value else "—"
-                text_widget = tk.Text(
-                    row,
-                    height=1 if len(value_str) < 80 else 2,
-                    wrap=tk.WORD,
-                    font=(UI_FONT, 9),
-                    bg=CARD_BG_COLOR,
-                    fg=TEXT_COLOR,
-                    borderwidth=0,
-                    selectbackground=BUTTON_COLOR,
-                    selectforeground="white",
-                    highlightthickness=0,
-                )
-                text_widget.insert("1.0", value_str)
-                text_widget.config(state="disabled")
-                text_widget.pack(side=tk.LEFT, fill=tk.X, expand=True)
-            return card
-
-        def create_codes_card(parent, title, icon, codes):
-            card = tk.Frame(
-                parent,
-                bg=CARD_BG_COLOR,
-                relief="flat",
-                bd=0,
-                highlightthickness=1,
-                highlightbackground=CARD_BORDER_COLOR,
-            )
-            card.pack(fill=tk.X, pady=(0, 15))
-            header = tk.Frame(card, bg=MCHD_COLOR, height=40)
-            header.pack(fill=tk.X)
-            header.pack_propagate(False)
-            tk.Label(
-                header,
-                text=f" {icon} {title}",
-                font=(UI_FONT, 11, "bold"),
-                fg="white",
-                bg=MCHD_COLOR,
-            ).pack(side=tk.LEFT, padx=15, pady=8)
-            body = tk.Frame(card, bg=CARD_BG_COLOR, padx=15, pady=10)
-            body.pack(fill=tk.X)
-            if codes:
-                codes_frame = tk.Frame(body, bg="#f8f9fa", relief="solid", bd=1)
-                codes_frame.pack(fill=tk.X, pady=5)
-                codes_text = "\n".join([f"  {code}" for code in codes])
-                text_widget = tk.Text(
-                    codes_frame,
-                    height=min(len(codes) + 1, 10),
-                    wrap=tk.WORD,
-                    font=("Courier New", 9),
-                    bg="#f8f9fa",
-                    fg=TEXT_COLOR,
-                    borderwidth=0,
-                    selectbackground=BUTTON_COLOR,
-                    selectforeground="white",
-                    padx=10,
-                    pady=8,
-                )
-                text_widget.insert("1.0", codes_text)
-                text_widget.config(state="disabled")
-                text_widget.pack(fill=tk.BOTH, expand=True)
-                counter_frame = tk.Frame(body, bg=CARD_BG_COLOR)
-                counter_frame.pack(fill=tk.X, pady=(8, 0))
-                tk.Label(
-                    counter_frame,
-                    text=f"📊 Всего кодов: {len(codes)}",
-                    font=(UI_FONT, 9, "italic"),
-                    fg=ACCENT_COLOR,
-                    bg=CARD_BG_COLOR,
-                ).pack(side=tk.LEFT)
-
-                def copy_codes():
-                    pyperclip.copy("\n".join(codes))
-                    messagebox.showinfo("Успех", f"Скопировано {len(codes)} кодов")
-
-                tk.Button(
-                    counter_frame,
-                    text="📋 Копировать коды",
-                    command=copy_codes,
-                    font=(UI_FONT, 8),
-                    bg=BUTTON_COLOR,
-                    fg="white",
-                    cursor="hand2",
-                    padx=10,
-                    pady=2,
-                    relief="flat",
-                    bd=0,
-                ).pack(side=tk.RIGHT)
-            else:
-                tk.Label(
-                    body,
-                    text="Нет данных о кодах полномочий",
-                    font=(UI_FONT, 9, "italic"),
-                    fg=ACCENT_COLOR,
-                    bg=CARD_BG_COLOR,
-                ).pack(pady=10)
-            return card
-
-        personal_data = [
-            ("📋 Номер доверенности", mchd.get("doc_number", "Не найден")),
-            ("📅 Дата выдачи", mchd.get("issue_date", "Не найдена")),
-            ("⏰ Срок действия", mchd.get("expiry_date", "Не найден")),
-            ("👤 ФИО представителя", mchd.get("full_name", "Не найдено")),
-            ("🆔 ИНН представителя", mchd.get("inn", "Не найден")),
-            ("🪪 СНИЛС представителя", mchd.get("snils", "Не найден")),
-            ("🎂 Дата рождения представителя", mchd.get("birth_date", "Не найдена")),
-            ("📊 Статус доверенности", mchd.get("status", "Не определен")),
-        ]
-
-        issuer_data = [
-            ("📛 Наименование организации", mchd.get("issuer_org_name", "Не найдено")),
-            ("🆔 ИНН организации", mchd.get("issuer_org_inn", "Не найден")),
-            ("🔢 КПП организации", mchd.get("issuer_org_kpp", "Не найден")),
-            ("📄 ОГРН организации", mchd.get("issuer_org_ogrn", "Не найден")),
-            ("📍 Адрес организации", mchd.get("issuer_org_address", "Не найден")),
-        ]
-
-        authorized_data = [
-            (
-                "👤 ФИО уполномоченного лица",
-                mchd.get("issuer_person_fullname", "Не найдено"),
-            ),
-            ("💼 Должность", mchd.get("issuer_person_position", "Не найдена")),
-            ("🆔 ИНН уполномоченного лица", mchd.get("issuer_person_inn", "Не найден")),
-            (
-                "🪪 СНИЛС уполномоченного лица",
-                mchd.get("issuer_person_snils", "Не найден"),
-            ),
-            (
-                "🎂 Дата рождения уполномоченного лица",
-                mchd.get("issuer_person_birthdate", "Не найдена"),
-            ),
-        ]
-
-        auth_codes = mchd.get("authority_codes", [])
-        create_info_card(
-            scrollable_frame, "ИНФОРМАЦИЯ О ПРЕДСТАВИТЕЛЕ", "👤", personal_data
-        )
-        if has_issuer_data:
-            create_info_card(
-                scrollable_frame,
-                "ОРГАНИЗАЦИЯ-ДОВЕРИТЕЛЬ",
-                "🏢",
-                issuer_data,
-                ACCENT_COLOR,
-            )
-            create_info_card(
-                scrollable_frame,
-                "УПОЛНОМОЧЕННОЕ ЛИЦО",
-                "👔",
-                authorized_data,
-                ACCENT_COLOR,
-            )
-        create_codes_card(scrollable_frame, "КОДЫ ПОЛНОМОЧИЙ", "🔑", auth_codes)
-
-        info_bar = tk.Frame(main_frame, bg="#e9ecef", height=35)
-        info_bar.pack(fill=tk.X, pady=(10, 0))
-        info_bar.pack_propagate(False)
-        tk.Label(
-            info_bar,
-            text="💡 Выделите любой текст мышкой и нажмите Ctrl+C для копирования",
-            font=(UI_FONT, 8),
-            fg=ACCENT_COLOR,
-            bg="#e9ecef",
-        ).pack(side=tk.LEFT, padx=15, pady=8)
-
-        btn_frame = tk.Frame(main_frame, bg=BG_COLOR)
-        btn_frame.pack(fill=tk.X, pady=(15, 0))
-
-        def copy_all_data():
-            copy_text = "=" * 50 + "\n"
-            copy_text += "          ПЕРСОНАЛЬНЫЕ ДАННЫЕ МЧД\n"
-            copy_text += "=" * 50 + "\n\n"
-            copy_text += "📌 ИНФОРМАЦИЯ О ПРЕДСТАВИТЕЛЕ\n"
-            copy_text += "-" * 40 + "\n"
-            copy_text += f"Номер доверенности: {mchd.get('doc_number', 'Не найден')}\n"
-            copy_text += f"Дата выдачи: {mchd.get('issue_date', 'Не найдена')}\n"
-            copy_text += f"Срок действия: {mchd.get('expiry_date', 'Не найден')}\n"
-            copy_text += f"ФИО представителя: {mchd.get('full_name', 'Не найдено')}\n"
-            copy_text += f"ИНН представителя: {mchd.get('inn', 'Не найден')}\n"
-            copy_text += f"СНИЛС представителя: {mchd.get('snils', 'Не найден')}\n"
-            copy_text += (
-                f"Дата рождения представителя: {mchd.get('birth_date', 'Не найдена')}\n"
-            )
-            copy_text += f"Статус: {mchd.get('status', 'Не определен')}\n\n"
-            if has_issuer_data:
-                copy_text += "📌 ОРГАНИЗАЦИЯ-ДОВЕРИТЕЛЬ\n"
-                copy_text += "-" * 40 + "\n"
-                copy_text += (
-                    f"Наименование: {mchd.get('issuer_org_name', 'Не найдено')}\n"
-                )
-                copy_text += f"ИНН: {mchd.get('issuer_org_inn', 'Не найден')}\n"
-                copy_text += f"КПП: {mchd.get('issuer_org_kpp', 'Не найден')}\n"
-                copy_text += f"ОГРН: {mchd.get('issuer_org_ogrn', 'Не найден')}\n"
-                copy_text += f"Адрес: {mchd.get('issuer_org_address', 'Не найден')}\n\n"
-                copy_text += "📌 УПОЛНОМОЧЕННОЕ ЛИЦО\n"
-                copy_text += "-" * 40 + "\n"
-                copy_text += (
-                    f"ФИО: {mchd.get('issuer_person_fullname', 'Не найдено')}\n"
-                )
-                copy_text += (
-                    f"Должность: {mchd.get('issuer_person_position', 'Не найдена')}\n"
-                )
-                copy_text += f"ИНН: {mchd.get('issuer_person_inn', 'Не найден')}\n"
-                copy_text += f"СНИЛС: {mchd.get('issuer_person_snils', 'Не найден')}\n"
-                copy_text += f"Дата рождения: {mchd.get('issuer_person_birthdate', 'Не найдена')}\n\n"
-            copy_text += "📌 КОДЫ ПОЛНОМОЧИЙ\n"
-            copy_text += "-" * 40 + "\n"
-            if auth_codes:
-                for code in auth_codes:
-                    copy_text += f"  • {code}\n"
-            else:
-                copy_text += "Нет данных\n"
-            copy_text += "\n" + "=" * 50 + "\n"
-            copy_text += (
-                f"Дата выгрузки: {datetime.now(UTC).strftime('%d.%m.%Y %H:%M:%S')}\n"
-            )
-            pyperclip.copy(copy_text)
-            messagebox.showinfo("Успех", "Все данные скопированы в буфер обмена")
-
-        btn_copy = tk.Button(
-            btn_frame,
-            text="📋 КОПИРОВАТЬ ВСЕ ДАННЫЕ",
-            command=copy_all_data,
-            font=(UI_FONT, 10, "bold"),
-            bg=BUTTON_COLOR,
-            fg="white",
-            cursor="hand2",
-            padx=20,
-            pady=8,
-            relief="flat",
-            bd=0,
-        )
-        btn_copy.pack(side=tk.LEFT, padx=5)
-
-        btn_close = tk.Button(
-            btn_frame,
-            text="❌ ЗАКРЫТЬ",
-            command=data_window.destroy,
-            font=(UI_FONT, 10),
-            bg=ACCENT_COLOR,
-            fg="white",
-            cursor="hand2",
-            padx=20,
-            pady=8,
-            relief="flat",
-            bd=0,
-        )
-        btn_close.pack(side=tk.RIGHT, padx=5)
-
-        def on_enter_btn(btn, color):
-            btn.config(bg=color)
-
-        def on_leave_btn(btn, color):
-            btn.config(bg=color)
-
-        btn_copy.bind("<Enter>", lambda e: on_enter_btn(btn_copy, BUTTON_HOVER))
-        btn_copy.bind("<Leave>", lambda e: on_leave_btn(btn_copy, BUTTON_COLOR))
-        btn_close.bind("<Enter>", lambda e: on_enter_btn(btn_close, "#5a6268"))
-        btn_close.bind("<Leave>", lambda e: on_leave_btn(btn_close, ACCENT_COLOR))
-
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
-
-        def on_destroy():
-            canvas.unbind_all("<MouseWheel>")
-            data_window.destroy()
-
-        data_window.protocol("WM_DELETE_WINDOW", on_destroy)
-
-    def on_search(self, *args):
-        query = self.search_var.get().lower()
-        if not query:
-            self.filtered_data = self.mchd_data.copy()
-            self.search_result_label.config(text="")
-        else:
-            self.filtered_data = []
-            for mchd in self.mchd_data:
-                full_name = mchd.get("full_name", "").lower()
-                if query in full_name:
-                    self.filtered_data.append(mchd)
-            self.search_result_label.config(
-                text=f"Найдено: {len(self.filtered_data)} из {len(self.mchd_data)}"
-            )
         self.refresh_table()
+        self.update_stats()
 
-    def clear_search(self):
+    def clear_search(self) -> None:
+        """Сбрасывает поисковую строку и фильтр статуса."""
         self.search_var.set("")
-        self.filtered_data = self.mchd_data.copy()
-        self.search_result_label.config(text="")
-        self.refresh_table()
+        self.status_var.set("Все статусы")
+        self.apply_filters()
 
-    def refresh_table(self):
-        for row in self.tree.get_children():
-            self.tree.delete(row)
-        self.populate_table_with_data(self.filtered_data)
+    def update_stats(self) -> None:
+        """Обновляет сводную статистику по статусам доверенностей."""
+        expired = sum(
+            1 for m in self.mchd_data if m.get("status") == "Просрочен"
+        )
+        warning = sum(
+            1
+            for m in self.mchd_data
+            if m.get("status") and "Истекает" in m.get("status", "")
+        )
+        valid = sum(
+            1 for m in self.mchd_data if m.get("status") == "Действует"
+        )
+        self.stats_label.config(
+            text=f"Всего: {len(self.mchd_data)}  |  Действуют: {valid}  |  Истекают: {warning}  |  Просрочены: {expired}"
+        )
 
-    def sort_column(self, col):
-        data = [
-            (self.tree.set(child, col), child) for child in self.tree.get_children("")
-        ]
-        if col in ("Дата выдачи", "Срок действия"):
+    @staticmethod
+    def _get_status_tag(status_text: str) -> str:
+        """Определяет тег стиля по текстовому статусу доверенности.
 
-            def parse_date(date_str):
-                try:
-                    if date_str and date_str not in ("Не найдена", "Не найден", ""):
-                        return datetime.strptime(date_str, "%d.%m.%Y")
-                except Exception:
-                    pass
-                return datetime.min.replace(tzinfo=UTC)
+        Args:
+            status_text: Текстовое описание статуса доверенности.
 
-            data.sort(key=lambda x: parse_date(x[0]), reverse=self.sort_reverse[col])
-        elif col == "ФИО":
-            data.sort(key=lambda x: x[0].lower(), reverse=self.sort_reverse[col])
-        elif col == "Коды полномочий":
-            data.sort(
-                key=lambda x: len(x[0]) if x[0] != "Нет кодов" else 0,
-                reverse=self.sort_reverse[col],
-            )
-        else:
-            data.sort(key=lambda x: x[0].lower(), reverse=self.sort_reverse[col])
-        for index, (val, child) in enumerate(data):
-            self.tree.move(child, "", index)
-        self.sort_reverse[col] = not self.sort_reverse[col]
+        Returns:
+            str: Название тега для строки Treeview ('expired', 'warning' или 'normal').
+        """
+        if status_text in ("Просрочен", "Отозвана"):
+            return "expired"
+        if "Истекает" in status_text:
+            return "warning"
+        return "normal"
 
-    def check_for_duplicates(self):
-        persons = {}
+    def refresh_table(self) -> None:
+        """Очищает и заново заполняет таблицу отфильтрованными данными."""
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        persons: dict[str, list[dict[str, Any]]] = {}
         for mchd in self.mchd_data:
             person = mchd.get("full_name", "Неизвестно")
             if person not in persons:
                 persons[person] = []
             persons[person].append(mchd)
-        duplicates = {
-            p: m for p, m in persons.items() if len(m) > 1 and p != "Не найдено"
-        }
-        if duplicates:
-            msg = "Найдены люди с несколькими МЧД:\n"
-            for person, mchds in duplicates.items():
-                msg += f"• {person} - {len(mchds)} МЧД\n"
-            msg += "\nВы можете выделить их в таблице и нажать 'Объединить выбранные МЧД' или 'Просмотр кодов'"
-            info_label = ttk.Label(
-                self.duplicate_frame,
-                text=msg,
-                font=(UI_FONT, 9),
-                foreground=MCHD_COLOR,
-                wraplength=1300,
-            )
-            info_label.pack()
 
-    def populate_table(self):
-        self.populate_table_with_data(self.mchd_data)
-
-    def populate_table_with_data(self, data):
-        persons = {}
-        for mchd in self.mchd_data:
-            person = mchd.get("full_name", "Неизвестно")
-            if person not in persons:
-                persons[person] = []
-            persons[person].append(mchd)
         duplicate_names = {
             p for p, m in persons.items() if len(m) > 1 and p != "Не найдено"
         }
-        for mchd in data:
-            tags = []
-            if mchd.get("status") == "Просрочен":
-                tags.append("expired")
-            elif mchd.get("status") and "Истекает" in mchd.get("status", ""):
-                tags.append("warning")
-            else:
-                tags.append("normal")
+
+        self._row_to_mchd.clear()
+        for idx, mchd in enumerate(self.filtered_data):
+            status_text = mchd.get("status", "")
+            tags = [self._get_status_tag(status_text)]
+
             person = mchd.get("full_name", "")
             if person in duplicate_names:
                 tags.append("duplicate_name")
+
             auth_codes = ", ".join(mchd.get("authority_codes", []))
-            if len(auth_codes) > 50:
-                auth_codes = auth_codes[:50] + "..."
+            if len(auth_codes) > 45:
+                auth_codes = auth_codes[:45] + "…"
             if not mchd.get("authority_codes"):
                 auth_codes = "Нет кодов"
+
+            org = mchd.get("issuer_org_name", mchd.get("principal_name", ""))
+            if org == "Не найдено":
+                org = ""
+
+            doc_number = mchd.get("doc_number", "")
+            iid = f"row_{idx}_{id(mchd)}"
+            self._row_to_mchd[iid] = mchd
+
             self.tree.insert(
                 "",
                 tk.END,
+                iid=iid,
                 values=(
                     os.path.basename(mchd.get("file_name", "")),
-                    mchd.get("doc_number", ""),
+                    doc_number,
                     mchd.get("issue_date", ""),
                     mchd.get("expiry_date", ""),
-                    mchd.get("full_name", ""),
+                    person,
+                    org,
                     auth_codes,
-                    mchd.get("status", ""),
+                    status_text,
                 ),
                 tags=tuple(tags),
             )
 
-    def on_select(self, event):
+    def check_for_duplicates(self) -> None:
+        """Проверяет наличие нескольких действующих МЧД у одного человека."""
+        for widget in self.duplicate_frame.winfo_children():
+            widget.destroy()
+
+        persons: dict[str, list[dict[str, Any]]] = {}
+        for mchd in self.mchd_data:
+            p = mchd.get("full_name", "")
+            if p and p != "Не найдено":
+                if p not in persons:
+                    persons[p] = []
+                persons[p].append(mchd)
+
+        duplicates = {p: m for p, m in persons.items() if len(m) > 1}
+        if duplicates:
+            banner = ttk.Frame(self.duplicate_frame, padding=6)
+            banner.pack(fill=tk.X)
+
+            msg = f"Внимание: обнаружены дубликаты МЧД ({len(duplicates)} чел. имеют несколько доверенностей)."
+            ttk.Label(
+                banner,
+                text=msg,
+                font=(UI_FONT, 9, "bold"),
+                foreground="#b26a00",
+            ).pack(side=tk.LEFT)
+
+            def filter_dup():
+                self.filtered_data = [
+                    m
+                    for m in self.mchd_data
+                    if m.get("full_name") in duplicates
+                ]
+                self.refresh_table()
+
+            ttk.Button(
+                banner,
+                text="Показать только дубликаты",
+                command=filter_dup,
+                width=24,
+            ).pack(side=tk.RIGHT, padx=5)
+
+    def sort_column(self, col: str) -> None:
+        """Сортирует таблицу по значениям выбранного столбца.
+
+        Args:
+            col: Идентификатор столбца.
+        """
+        data = [
+            (self.tree.set(child, col), child)
+            for child in self.tree.get_children("")
+        ]
+        if col in ("issue_date", "expiry_date"):
+
+            def parse_d(val: str) -> datetime:
+                try:
+                    if val and val not in ("Не найдена", "Не найден", ""):
+                        return datetime.strptime(val, "%d.%m.%Y")
+                except Exception:
+                    pass
+                return datetime.min.replace(tzinfo=UTC)
+
+            data.sort(
+                key=lambda x: parse_d(x[0]), reverse=self.sort_reverse[col]
+            )
+        else:
+            data.sort(
+                key=lambda x: str(x[0]).lower(), reverse=self.sort_reverse[col]
+            )
+
+        for index, (_, child) in enumerate(data):
+            self.tree.move(child, "", index)
+
+        self.sort_reverse[col] = not self.sort_reverse[col]
+
+    def on_select(self, _event=None) -> None:
+        """Обновляет состояние панели деталей при изменении выделения строк."""
         self.selected_items = self.tree.selection()
         count = len(self.selected_items)
         self.selected_info_label.config(text=f"Выбрано: {count} МЧД")
-        selected_mchd = self.get_selected_mchd_objects()
 
+        selected_mchd = self.get_selected_mchd_objects()
         if count >= 1:
             persons = {m.get("full_name", "") for m in selected_mchd}
-            if count >= 2 and len(persons) == 1:
-                self.merge_btn.config(state=tk.NORMAL)
-                self.view_auth_btn.config(state=tk.NORMAL)
-                self.view_personal_btn.config(state=tk.DISABLED)
+            if len(persons) == 1:
                 self.person_info_label.config(
-                    text=f"ФИО: {next(iter(persons))} (можно объединить)"
-                )
-            elif count == 1:
-                self.merge_btn.config(state=tk.DISABLED)
-                self.view_auth_btn.config(state=tk.NORMAL)
-                self.view_personal_btn.config(state=tk.NORMAL)
-                self.person_info_label.config(
-                    text=f"ФИО: {next(iter(persons)) if persons else ''}"
+                    text=f"Представитель: {next(iter(persons))}"
                 )
             else:
-                self.merge_btn.config(state=tk.DISABLED)
-                self.view_auth_btn.config(state=tk.NORMAL)
-                self.view_personal_btn.config(state=tk.DISABLED)
-                if len(persons) > 1:
-                    self.person_info_label.config(
-                        text="Выбраны разные люди! Объединение невозможно"
-                    )
-                else:
-                    self.person_info_label.config(
-                        text=f"ФИО: {next(iter(persons)) if persons else ''}"
-                    )
+                self.person_info_label.config(
+                    text=f"Выбрано представителей: {len(persons)}"
+                )
         else:
-            self.merge_btn.config(state=tk.DISABLED)
-            self.view_auth_btn.config(state=tk.DISABLED)
-            self.view_personal_btn.config(state=tk.DISABLED)
             self.person_info_label.config(text="")
+
         self.update_codes_list()
 
-    def get_selected_mchd_objects(self):
-        selected_mchd = []
-        for item in self.selected_items:
-            values = self.tree.item(item)["values"]
-            if not values:
-                continue
-            file_name = values[0]
-            for mchd in self.filtered_data:
-                if os.path.basename(mchd.get("file_name", "")) == file_name:
-                    selected_mchd.append(mchd)
-                    break
-        return selected_mchd
-
-    def view_merged_authorities(self):
-        selected_mchd = self.get_selected_mchd_objects()
-        if not selected_mchd:
-            messagebox.showwarning("Внимание", "Выберите МЧД для просмотра")
-            return
-        merged_data = MCHDMerger.get_merged_authorities(selected_mchd)
-        if merged_data:
-            AuthoritiesViewWindow(self.window, merged_data)
-        else:
-            messagebox.showerror("Ошибка", "Не удалось получить данные о полномочиях")
-
-    def update_codes_list(self):
+    def update_codes_list(self) -> None:
+        """Обновляет содержимое списка кодов полномочий для выделенных строк."""
         self.codes_listbox.delete(0, tk.END)
         if not self.selected_items:
-            self.codes_listbox.insert(tk.END, "Выберите МЧД в таблице")
+            self.codes_listbox.insert(0, "Выберите МЧД в таблице")
             return
+
         selected_mchd = self.get_selected_mchd_objects()
-        all_codes = set()
+        all_codes: set[str] = set()
         for mchd in selected_mchd:
-            codes = mchd.get("authority_codes", [])
-            all_codes.update(codes)
+            all_codes.update(mchd.get("authority_codes", []))
+
         if all_codes:
             for code in sorted(all_codes):
-                self.codes_listbox.insert(tk.END, code)
+                self.codes_listbox.insert(tk.END, f"• {code}")
             self.codes_listbox.insert(tk.END, "")
             self.codes_listbox.insert(
                 tk.END, f"ВСЕГО УНИКАЛЬНЫХ КОДОВ: {len(all_codes)}"
             )
         else:
-            self.codes_listbox.insert(tk.END, "Нет кодов полномочий")
+            self.codes_listbox.insert(0, "Нет кодов полномочий")
 
-    def merge_selected(self):
-        if len(self.selected_items) < 2:
-            messagebox.showwarning("Внимание", "Выберите минимум 2 МЧД для объединения")
-            return
-        selected_mchd = self.get_selected_mchd_objects()
-        if len(selected_mchd) < 2:
-            messagebox.showerror("Ошибка", "Не удалось найти выбранные файлы")
-            return
-        persons = {m.get("full_name", "") for m in selected_mchd}
-        if len(persons) > 1:
-            messagebox.showerror("Ошибка", "Нельзя объединять МЧД разных людей!")
-            return
-        merged_data = MCHDMerger.get_merged_authorities(selected_mchd)
-        response = messagebox.askyesnocancel(
-            "Объединение МЧД",
-            f"Выбрано {len(selected_mchd)} МЧД для {next(iter(persons))}\n"
-            f"Уникальных кодов: {merged_data.get('unique_codes_count', 0)}\n\n"
-            "Нажмите 'Да' чтобы создать неподписанный черновик XML,\n"
-            "'Нет' чтобы только просмотреть коды,\n"
-            "'Отмена' для отмены.",
+    def get_selected_mchd_objects(self) -> list[dict[str, Any]]:
+        """Возвращает список словарей МЧД для выделенных строк в таблице.
+
+        Returns:
+            list[dict[str, Any]]: Список выбранных объектов доверенностей.
+        """
+        selected: list[dict[str, Any]] = []
+        for iid in self.selected_items:
+            if iid in self._row_to_mchd:
+                selected.append(self._row_to_mchd[iid])
+            else:
+                for m in self.mchd_data:
+                    if m.get("doc_number") == iid or str(id(m)) == iid:
+                        selected.append(m)
+                        break
+        return selected
+
+    def scan_folder(self) -> None:
+        """Запрашивает каталог и сканирует все XML-файлы доверенностей с сохранением в БД."""
+        path = filedialog.askdirectory(
+            title="Выберите папку с файлами XML МЧД",
+            parent=self.winfo_toplevel(),
         )
-        if response is None:
+        if not path:
             return
-        if response:
-            person_name = next(iter(persons)).replace(" ", "_")
-            default_name = f"Объединенная_МЧД_{person_name}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.xml"
-            save_path = filedialog.asksaveasfilename(
-                defaultextension=".xml",
-                filetypes=[("XML файлы", "*.xml"), ("Все файлы", "*.*")],
-                initialdir=os.path.dirname(selected_mchd[0].get("file_name", "")),
-                initialfile=default_name,
-                title="Сохранить объединенную МЧД",
-            )
-            if not save_path:
-                return
+
+        if hasattr(self.app, "mchds") and self.app.mchds:
             try:
-                result = MCHDMerger.merge_mchd_files(selected_mchd, save_path)
-            except (ValueError, OSError) as exc:
-                messagebox.showerror("Объединение МЧД", str(exc))
-                return
+                records = self.app.mchds.scan(path, save_to_db=True)
+                if self.app.mchds.errors:
+                    err_msg = "\n".join(
+                        [
+                            f"{Path(k).name}: {v}"
+                            for k, v in list(self.app.mchds.errors.items())[:5]
+                        ]
+                    )
+                    messagebox.showwarning(
+                        "Ошибки при анализе МЧД",
+                        f"Обнаружены ошибки в некоторых файлах:\n\n{err_msg}",
+                        parent=self.winfo_toplevel(),
+                    )
+                self.refresh()
+                self.on_message(
+                    f"Отсканировано и сохранено МЧД: {len(records)}"
+                )
+            except Exception as exc:
+                messagebox.showerror(
+                    "Ошибка сканирования",
+                    str(exc),
+                    parent=self.winfo_toplevel(),
+                )
+        else:
+            messagebox.showinfo(
+                "Информация", "Сервис МЧД недоступен", parent=self.winfo_toplevel()
+            )
+
+    def import_files(self) -> None:
+        """Импортирует выбранные пользователем XML-файлы МЧД в базу данных."""
+        paths = filedialog.askopenfilenames(
+            title="Выберите XML-файлы МЧД",
+            filetypes=[("XML файлы", "*.xml"), ("Все файлы", "*.*")],
+            parent=self.winfo_toplevel(),
+        )
+        if not paths:
+            return
+
+        if hasattr(self.app, "mchds") and self.app.mchds:
+            try:
+                imported = self.app.mchds.import_files(paths, save_to_db=True)
+                self.refresh()
+                self.on_message(f"Импортировано файлов МЧД: {len(imported)}")
+            except Exception as exc:
+                messagebox.showerror(
+                    "Ошибка импорта", str(exc), parent=self.winfo_toplevel()
+                )
+
+    def delete_selected(self) -> None:
+        """Удаляет выбранные МЧД из базы данных после подтверждения."""
+        selected = self.get_selected_mchd_objects()
+        if not selected:
+            messagebox.showinfo(
+                "Выбор",
+                "Выберите МЧД для удаления из учета",
+                parent=self.winfo_toplevel(),
+            )
+            return
+
+        confirm = messagebox.askyesno(
+            "Подтверждение удаления",
+            f"Удалить выбранные доверенности ({len(selected)} шт.) из учета базы данных?",
+            parent=self.winfo_toplevel(),
+        )
+        if not confirm:
+            return
+
+        deleted_count = 0
+        if hasattr(self.app, "mchds") and self.app.mchds:
+            for m in selected:
+                num = m.get("doc_number")
+                if num and self.app.mchds.delete(num):
+                    deleted_count += 1
+            self.refresh()
+            self.on_message(f"Удалено из учета МЧД: {deleted_count}")
+
+    def view_personal_data(self) -> None:
+        """Открывает окно подробной карточки реквизитов выбранной МЧД."""
+        selected = self.get_selected_mchd_objects()
+        if len(selected) != 1:
+            messagebox.showwarning(
+                "Внимание",
+                "Выберите ровно одну МЧД для просмотра карточки",
+                parent=self.winfo_toplevel(),
+            )
+            return
+        MchdPersonalDataWindow(self.winfo_toplevel(), selected[0])
+
+    def view_merged_authorities(self) -> None:
+        """Открывает окно просмотра объединенных полномочий для выбранных МЧД."""
+        selected = self.get_selected_mchd_objects()
+        if not selected:
+            messagebox.showwarning(
+                "Внимание",
+                "Выберите МЧД для просмотра полномочий",
+                parent=self.winfo_toplevel(),
+            )
+            return
+        merged = MCHDMerger.get_merged_authorities(selected)
+        if merged:
+            AuthoritiesViewWindow(self.winfo_toplevel(), merged)
+
+    def merge_selected(self) -> None:
+        """Объединяет полномочия выбранных МЧД в единый XML файл."""
+        selected = self.get_selected_mchd_objects()
+        if len(selected) < 2:
+            messagebox.showwarning(
+                "Внимание",
+                "Выберите минимум 2 МЧД для объединения полномочий",
+                parent=self.winfo_toplevel(),
+            )
+            return
+
+        persons = {m.get("full_name", "") for m in selected}
+        if len(persons) > 1:
+            messagebox.showerror(
+                "Ошибка",
+                "Нельзя объединять МЧД разных людей!",
+                parent=self.winfo_toplevel(),
+            )
+            return
+
+        merged = MCHDMerger.get_merged_authorities(selected)
+        person_name = next(iter(persons))
+        clean_name = person_name.replace(" ", "_")
+        default_file = f"Объединенная_МЧД_{clean_name}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.xml"
+
+        save_path = filedialog.asksaveasfilename(
+            defaultextension=".xml",
+            filetypes=[("XML файлы", "*.xml"), ("Все файлы", "*.*")],
+            initialfile=default_file,
+            title="Сохранить черновик объединенной МЧД",
+            parent=self.winfo_toplevel(),
+        )
+        if not save_path:
+            return
+
+        try:
+            result = MCHDMerger.merge_mchd_files(selected, save_path)
             if result and os.path.exists(result):
                 messagebox.showinfo(
                     "Успех",
-                    f"Создан неподписанный черновик МЧД.\n\n"
-                    f"ФИО: {next(iter(persons))}\n"
-                    f"Всего уникальных кодов: {merged_data.get('unique_codes_count', 0)}\n"
+                    f"Создан неподписанный черновик МЧД:\n\n"
+                    f"ФИО: {person_name}\n"
+                    f"Уникальных кодов: {merged.get('unique_codes_count', 0)}\n\n"
                     f"Файл сохранен:\n{result}",
+                    parent=self.winfo_toplevel(),
                 )
-                if messagebox.askyesno(
-                    "Открыть папку", "Открыть папку с объединенным файлом?"
-                ):
-                    open_path(os.path.dirname(result))
-            else:
-                messagebox.showerror("Ошибка", "Не удалось объединить МЧД")
-        else:
-            if merged_data:
-                AuthoritiesViewWindow(self.window, merged_data)
+        except Exception as exc:
+            messagebox.showerror(
+                "Ошибка объединения", str(exc), parent=self.winfo_toplevel()
+            )
 
-    def copy_selected_codes(self):
-        codes = []
-        for i in range(self.codes_listbox.size()):
-            text = self.codes_listbox.get(i)
-            if (
-                text
-                and not text.startswith("ВСЕГО")
-                and text != "Нет кодов полномочий"
-                and text != "Выберите МЧД в таблице"
-                and text != ""
-            ):
-                codes.append(text)
+    def copy_selected_codes(self) -> None:
+        """Копирует коды полномочий выбранных МЧД в буфер обмена."""
+        selected = self.get_selected_mchd_objects()
+        codes: set[str] = set()
+        for m in selected:
+            codes.update(m.get("authority_codes", []))
+
         if codes:
-            pyperclip.copy("\n".join(codes))
-            messagebox.showinfo("Успех", f"Скопировано {len(codes)} кодов")
+            pyperclip.copy("\n".join(sorted(codes)))
+            messagebox.showinfo(
+                "Успех",
+                f"Скопировано {len(codes)} уникальных кодов полномочий",
+                parent=self.winfo_toplevel(),
+            )
         else:
-            messagebox.showwarning("Внимание", "Нет кодов для копирования")
+            messagebox.showwarning(
+                "Внимание",
+                "Нет кодов для копирования",
+                parent=self.winfo_toplevel(),
+            )
 
-    def on_double_click(self, event):
-        selection = self.tree.selection()
-        if not selection:
-            return
-        item = selection[0]
-        values = self.tree.item(item)["values"]
-        if not values:
-            return
-        file_name = values[0]
-        for mchd in self.filtered_data:
-            if os.path.basename(mchd.get("file_name", "")) == file_name:
-                full_path = mchd.get("file_name")
-                if full_path and os.path.exists(full_path):
-                    try:
-                        open_path(full_path)
-                    except Exception as e:
-                        messagebox.showerror("Ошибка", f"Не удалось открыть файл: {e}")
-                break
-
-    def export_to_excel(self):
+    def export_to_excel(self) -> None:
+        """Экспортирует список отображаемых МЧД в файл таблицы Excel."""
         if not self.filtered_data:
-            messagebox.showerror("Ошибка", "Нет данных для экспорта!")
+            messagebox.showwarning(
+                "Внимание",
+                "Нет данных для экспорта",
+                parent=self.winfo_toplevel(),
+            )
             return
+
+        default_name = (
+            f"mchd_report_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.xlsx"
+        )
+        save_path = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel файлы", "*.xlsx"), ("Все файлы", "*.*")],
+            initialdir=load_settings().export_folder,
+            initialfile=default_name,
+            title="Сохранить отчет по МЧД",
+            parent=self.winfo_toplevel(),
+        )
+        if not save_path:
+            return
+
         try:
-            default_name = (
-                f"mchd_report_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.xlsx"
-            )
-            save_path = filedialog.asksaveasfilename(
-                defaultextension=".xlsx",
-                filetypes=[("Excel файлы", "*.xlsx"), ("Все файлы", "*.*")],
-                initialdir=load_settings().export_folder,
-                initialfile=default_name,
-                title="Сохранить отчет МЧД",
-            )
-            if not save_path:
-                return
             from certificate_analyzer.infrastructure.reports.excel_exporter import (
                 ExcelReportExporter,
             )
@@ -1075,8 +1210,84 @@ class MCHDTableWindow:
             ExcelReportExporter().export_rows(
                 self.filtered_data, save_path, "Отчет по МЧД"
             )
-            messagebox.showinfo("Успех", f"Отчет сохранен:\n{save_path}")
-        except Exception as e:
-            messagebox.showerror(
-                "Ошибка", f"Не удалось экспортировать в Excel:\n{e!s}"
+            messagebox.showinfo(
+                "Успех",
+                f"Отчет успешно сохранен:\n{save_path}",
+                parent=self.winfo_toplevel(),
             )
+        except Exception as exc:
+            messagebox.showerror(
+                "Ошибка экспорта",
+                f"Не удалось экспортировать в Excel:\n{exc}",
+                parent=self.winfo_toplevel(),
+            )
+
+    def open_xml_file(self) -> None:
+        """Открывает исходный XML-файл выбранной МЧД в системной программе."""
+        selected = self.get_selected_mchd_objects()
+        if not selected:
+            return
+        path = selected[0].get("file_name")
+        if path and os.path.exists(path):
+            try:
+                open_path(path)
+            except Exception as exc:
+                messagebox.showerror(
+                    "Ошибка",
+                    f"Не удалось открыть файл:\n{exc}",
+                    parent=self.winfo_toplevel(),
+                )
+        else:
+            messagebox.showwarning(
+                "Файл не найден",
+                f"Файл не существует на диске:\n{path}",
+                parent=self.winfo_toplevel(),
+            )
+
+    def reveal_file(self) -> None:
+        """Открывает папку с исходным файлом МЧД в проводнике."""
+        selected = self.get_selected_mchd_objects()
+        if not selected:
+            return
+        path = selected[0].get("file_name")
+        if path and os.path.exists(path):
+            open_path(os.path.dirname(path))
+
+    def on_double_click(self, _event: tk.Event) -> None:
+        """Обрабатывает двойной клик мыши по строке таблицы (открывает карточку МЧД)."""
+        self.view_personal_data()
+
+
+class MCHDTableWindow:
+    """Окно для автономного отображения таблицы МЧД (для обратной совместимости)."""
+
+    def __init__(
+        self,
+        parent: tk.Widget,
+        mchd_data: list[dict[str, Any]] | None = None,
+        application: Any = None,
+    ) -> None:
+        """Инициализирует отдельное окно со списком МЧД.
+
+        Args:
+            parent: Родительский виджет.
+            mchd_data: Список словарей доверенностей.
+            application: Контейнер приложения (опционально).
+        """
+        self.parent = parent
+        self.window = tk.Toplevel(parent)
+        self.window.title("Машиночитаемые доверенности (МЧД)")
+        self.window.geometry("1300x750")
+        self.window.configure(bg=BG_COLOR)
+
+        self.view = MchdView(
+            self.window, application=application, mchd_data=mchd_data
+        )
+        self.view.pack(fill=tk.BOTH, expand=True)
+        self.window.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _on_close(self) -> None:
+        """Закрывает окно."""
+        if self.window:
+            self.window.destroy()
+            self.window = None

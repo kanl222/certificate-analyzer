@@ -127,12 +127,35 @@ class EmployeeRepository:
         """
         with self.sessions() as session:
             stmt = select(EmployeeModel).order_by(EmployeeModel.full_name)
-            if search:
-                term = f"%{search.strip().lower()}%"
-                stmt = stmt.where(
-                    EmployeeModel.full_name.ilike(term)
-                    | EmployeeModel.department.ilike(term)
-                    | EmployeeModel.position.ilike(term)
-                )
             models = session.scalars(stmt).all()
+            if search and search.strip():
+                term = search.strip().casefold()
+                return [
+                    self._to_domain(m)
+                    for m in models
+                    if term in (m.full_name or "").casefold()
+                    or term in (m.department or "").casefold()
+                    or term in (m.position or "").casefold()
+                    or term in (m.office or "").casefold()
+                    or term in (m.phones or "").casefold()
+                    or term in (m.email or "").casefold()
+                ]
             return [self._to_domain(m) for m in models]
+
+
+    def delete(self, employee_id: int) -> bool:
+        """Удаляет запись сотрудника по первичному ключу.
+
+        Args:
+            employee_id: Идентификатор сотрудника.
+
+        Returns:
+            bool: True, если сотрудник был найден и удален, иначе False.
+        """
+        with self.sessions.begin() as session:
+            model = session.get(EmployeeModel, employee_id)
+            if not model:
+                return False
+            session.delete(model)
+            return True
+

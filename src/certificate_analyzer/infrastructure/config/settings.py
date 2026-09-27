@@ -8,8 +8,8 @@ from certificate_analyzer.constants import CHECK_INTERVAL, WARNING_DAYS
 class Settings:
     folders: dict[str, str] = field(
         default_factory=lambda: {
-            "📁 Сотрудники": str(Path.home() / "Certs"),
-            "📁 Руководство": str(Path.home() / "ImportantCerts"),
+            "Сотрудники": str(Path.home() / "Certs"),
+            "Руководство": str(Path.home() / "ImportantCerts"),
         }
     )
     mchd_folder: str = field(default_factory=lambda: str(Path.home() / "MCHD"))

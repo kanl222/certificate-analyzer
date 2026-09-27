@@ -16,18 +16,28 @@ from certificate_analyzer.domain.enums.certificate_status import \
     CertificateStatus
 from certificate_analyzer.infrastructure.config.config_loader import \
     save_settings
-from certificate_analyzer.presentation.gui.styles import (ACCENT_COLOR,
-                                                          BG_COLOR, TEXT_COLOR,
-                                                          UI_FONT)
+from certificate_analyzer.presentation.gui.styles import (
+    UI_FONT,
+    configure_gui_styles,
+)
 from certificate_analyzer.presentation.gui.views.audit_view import AuditWindow
-from certificate_analyzer.presentation.gui.views.history_view import \
-    NotificationHistory
-from certificate_analyzer.presentation.gui.views.normative_view import \
-    NormativeWindow
-from certificate_analyzer.presentation.gui.views.requests_view import \
-    RequestsView
-from certificate_analyzer.presentation.gui.widgets.certificate_details import \
-    CertificateDetails
+from certificate_analyzer.presentation.gui.views.employees_view import (
+    EmployeesView,
+)
+from certificate_analyzer.presentation.gui.views.history_view import (
+    NotificationHistory,
+)
+from certificate_analyzer.presentation.gui.views.mchd_view import MchdView
+from certificate_analyzer.presentation.gui.views.normative_view import (
+    NormativeWindow,
+)
+from certificate_analyzer.presentation.gui.views.requests_view import (
+    RequestsView,
+)
+from certificate_analyzer.presentation.gui.widgets.certificate_details import (
+    CertificateDetails,
+)
+
 
 STATUS_LABELS = {
     "Все статусы": None,
@@ -77,18 +87,7 @@ class CertificateAnalyzerApp:
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
     def _build_ui(self):
-        style = ttk.Style(self.root)
-        style.theme_use("clam")
-        style.configure(
-            ".", font=(UI_FONT, 10), background=BG_COLOR, foreground=TEXT_COLOR
-        )
-        style.configure(
-            "Treeview", rowheight=30, background="white", fieldbackground="white"
-        )
-        style.configure("Treeview.Heading", font=(UI_FONT, 10, "bold"))
-        style.configure(
-            "Accent.TButton", background=ACCENT_COLOR, foreground="white", padding=7
-        )
+        configure_gui_styles(self.root)
         frame = ttk.Frame(self.root, padding=14)
         frame.pack(fill="both", expand=True)
 
@@ -97,56 +96,48 @@ class CertificateAnalyzerApp:
 
         self.certs_tab = ttk.Frame(self.notebook, padding=6)
         self.requests_tab = ttk.Frame(self.notebook, padding=6)
+        self.employees_tab = ttk.Frame(self.notebook, padding=6)
+        self.mchd_tab = ttk.Frame(self.notebook, padding=6)
 
         self.notebook.add(self.certs_tab, text="Сертификаты")
         self.notebook.add(self.requests_tab, text="Заявки")
+        self.notebook.add(self.employees_tab, text="Сотрудники")
+        self.notebook.add(self.mchd_tab, text="МЧД")
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
-
-        heading = ttk.Frame(self.certs_tab)
-        heading.pack(fill="x", pady=(0, 8))
-
-        toolbar = ttk.Frame(self.certs_tab)
-        toolbar.pack(fill="x", pady=(0, 10))
+        toolbar = ttk.Frame(
+            self.certs_tab, style="Panel.TFrame", padding=(8, 6)
+        )
+        toolbar.pack(fill="x", pady=(0, 8))
         self.import_buttons = []
-        for label, action in (
-            ("Добавить сертификат", self.import_files),
-            ("Импорт папки", self.import_folder),
+        for label, action, button_style in (
+            ("Добавить сертификат", self.import_files, "Accent.TButton"),
+            ("Импорт папки", self.import_folder, "Toolbar.TButton"),
         ):
             button = ttk.Button(
-                toolbar, text=label, command=action, style="Accent.TButton"
+                toolbar, text=label, command=action, style=button_style
             )
             button.pack(side="left", padx=(0, 6))
             self.import_buttons.append(button)
 
-        ttk.Button(toolbar, text="Обновить", command=self.refresh).pack(
-            side="left", padx=3
-        )
-        ttk.Button(toolbar, text="Открыть", command=self.open_certificate).pack(
-            side="left", padx=3
-        )
-        ttk.Button(toolbar, text="В папке", command=self.reveal_certificate_file).pack(
-            side="left", padx=3
-        )
-        ttk.Button(toolbar, text="Отчёт", command=self.export_report).pack(
-            side="left", padx=3
-        )
-        ttk.Button(toolbar, text="Справочник", command=self.import_phonebook).pack(
-            side="left", padx=3
-        )
-        ttk.Button(toolbar, text="МЧД", command=self.open_mchd).pack(
-            side="left", padx=3
-        )
-        ttk.Button(toolbar, text="Удалить файл", command=self.delete_physical_file).pack(
-            side="right", padx=(4, 0)
-        )
-        ttk.Button(toolbar, text="Удалить из учета", command=self.delete_selected).pack(
-            side="right"
-        )
+        ttk.Button(
+            toolbar,
+            text="Обновить",
+            command=self.refresh,
+            style="Toolbar.TButton",
+        ).pack(side="left", padx=3)
+        ttk.Button(
+            toolbar,
+            text="Отчёт",
+            command=self.export_report,
+            style="Toolbar.TButton",
+        ).pack(side="left", padx=3)
         self.stats_label = ttk.Label(self.certs_tab, font=(UI_FONT, 11, "bold"))
-        self.stats_label.pack(anchor="w", pady=(0, 12))
-        filters = ttk.Frame(self.certs_tab)
-        filters.pack(fill="x", pady=(0, 10))
-        ttk.Label(filters, text="Поиск:").pack(side="left")
+        self.stats_label.pack(anchor="w", pady=(2, 8))
+        filters = ttk.Frame(
+            self.certs_tab, style="Panel.TFrame", padding=(8, 6)
+        )
+        filters.pack(fill="x", pady=(0, 8))
+        ttk.Label(filters, text="Поиск:", style="Panel.TLabel").pack(side="left")
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", self._search_changed)
         ttk.Entry(filters, textvariable=self.search_var, width=25).pack(
@@ -162,18 +153,28 @@ class CertificateAnalyzerApp:
         )
         status.pack(side="left", padx=5)
         status.bind("<<ComboboxSelected>>", lambda _: self.refresh(reset=True))
-        ttk.Label(filters, text="Срок с:").pack(side="left", padx=(8, 2))
+        ttk.Label(filters, text="Срок с:", style="Panel.TLabel").pack(
+            side="left", padx=(8, 2)
+        )
         self.date_from_var = tk.StringVar()
         ttk.Entry(filters, textvariable=self.date_from_var, width=11).pack(side="left")
-        ttk.Label(filters, text="по:").pack(side="left", padx=2)
+        ttk.Label(filters, text="по:", style="Panel.TLabel").pack(
+            side="left", padx=2
+        )
         self.date_to_var = tk.StringVar()
         ttk.Entry(filters, textvariable=self.date_to_var, width=11).pack(side="left")
         ttk.Button(
-            filters, text="Применить", command=lambda: self.refresh(reset=True)
+            filters,
+            text="Применить",
+            command=lambda: self.refresh(reset=True),
+            style="Toolbar.TButton",
         ).pack(side="left", padx=5)
-        ttk.Button(filters, text="Сбросить", command=self.clear_filters).pack(
-            side="left"
-        )
+        ttk.Button(
+            filters,
+            text="Сбросить",
+            command=self.clear_filters,
+            style="Toolbar.TButton",
+        ).pack(side="left")
         ttk.Label(
             self.certs_tab,
             text="Даты фильтра: ГГГГ-ММ-ДД. Поиск: ФИО, файл, номер, email, кабинет, подразделение, телефон.",
@@ -216,14 +217,22 @@ class CertificateAnalyzerApp:
                 self._tree_menu.post(event.x_root, event.y_root)
 
         self.tree.bind("<Button-3>", _on_tree_context)
-        paging = ttk.Frame(self.certs_tab)
-        paging.pack(fill="x", pady=7)
+        paging = ttk.Frame(
+            self.certs_tab, style="Panel.TFrame", padding=(8, 6)
+        )
+        paging.pack(fill="x", pady=(8, 0))
         self.previous_button = ttk.Button(
-            paging, text="Предыдущие", command=lambda: self.change_page(-100)
+            paging,
+            text="Предыдущие",
+            command=lambda: self.change_page(-100),
+            style="Toolbar.TButton",
         )
         self.previous_button.pack(side="left")
         self.next_button = ttk.Button(
-            paging, text="Следующие", command=lambda: self.change_page(100)
+            paging,
+            text="Следующие",
+            command=lambda: self.change_page(100),
+            style="Toolbar.TButton",
         )
         self.next_button.pack(side="left", padx=5)
         self.page_label = ttk.Label(paging)
@@ -246,6 +255,26 @@ class CertificateAnalyzerApp:
         )
         self.requests_view.pack(fill="both", expand=True)
 
+        # Вкладка "Сотрудники"
+        self.employees_view = EmployeesView(
+            self.employees_tab,
+            application=self.app,
+            on_message=lambda msg: self.message.config(text=msg)
+            if hasattr(self, "message")
+            else None,
+        )
+        self.employees_view.pack(fill="both", expand=True)
+
+        # Вкладка "МЧД"
+        self.mchd_view = MchdView(
+            self.mchd_tab,
+            application=self.app,
+            on_message=lambda msg: self.message.config(text=msg)
+            if hasattr(self, "message")
+            else None,
+        )
+        self.mchd_view.pack(fill="both", expand=True)
+
         self._create_menu_bar()
 
     def _on_tab_changed(self, event=None):
@@ -263,6 +292,10 @@ class CertificateAnalyzerApp:
         tab_text = self.notebook.tab(selected_tab, "text")
         if tab_text == "Заявки" and hasattr(self, "requests_view"):
             self.requests_view.refresh()
+        elif tab_text == "Сотрудники" and hasattr(self, "employees_view"):
+            self.employees_view.refresh()
+        elif tab_text == "МЧД" and hasattr(self, "mchd_view"):
+            self.mchd_view.refresh()
         elif tab_text == "Сертификаты":
             self.refresh()
 
@@ -274,6 +307,22 @@ class CertificateAnalyzerApp:
         """
         self.notebook.select(self.requests_tab)
 
+    def show_employees_tab(self):
+        """Активирует вкладку сотрудников.
+
+        Returns:
+            None
+        """
+        self.notebook.select(self.employees_tab)
+
+    def show_mchd_tab(self):
+        """Активирует вкладку машиночитаемых доверенностей (МЧД).
+
+        Returns:
+            None
+        """
+        self.notebook.select(self.mchd_tab)
+
     def show_certificates_tab(self):
         """Активирует вкладку сертификатов.
 
@@ -281,6 +330,7 @@ class CertificateAnalyzerApp:
             None
         """
         self.notebook.select(self.certs_tab)
+
 
     def create_certificate_request(self):
         """Переключается на вкладку заявок и открывает диалог создания новой заявки.
@@ -291,6 +341,17 @@ class CertificateAnalyzerApp:
         self.show_requests_tab()
         if hasattr(self, "requests_view"):
             self.requests_view.show_create_dialog()
+
+    def create_employee(self):
+        """Переключается на вкладку сотрудников и открывает диалог добавления сотрудника.
+
+        Returns:
+            None
+        """
+        self.show_employees_tab()
+        if hasattr(self, "employees_view"):
+            self.employees_view.show_create_dialog()
+
 
     def _search_changed(self, *_):
         if self.search_after:
@@ -620,24 +681,14 @@ class CertificateAnalyzerApp:
         )
 
     def open_mchd(self):
-        path = filedialog.askdirectory(title="Папка XML МЧД")
-        if not path:
-            return
+        """Переключается на вкладку МЧД и запускает диалог сканирования папки XML.
 
-        def finished(records):
-            from certificate_analyzer.application.dto.mchd_dto import \
-                mchd_to_dict
-            from certificate_analyzer.presentation.gui.views.mchd_view import \
-                MCHDTableWindow
-
-            if self.app.mchds.errors:
-                messagebox.showwarning(
-                    "Ошибки МЧД", "\n".join(self.app.mchds.errors.values())
-                )
-            MCHDTableWindow(self.root, [mchd_to_dict(m).to_dict() for m in records])
-            self.message.config(text=f"МЧД: {len(records)}")
-
-        self._submit(lambda: self.app.mchds.scan(path), finished)
+        Returns:
+            None
+        """
+        self.show_mchd_tab()
+        if hasattr(self, "mchd_view"):
+            self.mchd_view.scan_folder()
 
     def show_settings(self):
         window = tk.Toplevel(self.root)
@@ -811,13 +862,38 @@ class CertificateAnalyzerApp:
             command=self.show_requests_tab,
             accelerator="Ctrl+2",
         )
+        view_menu.add_command(
+            label="Вкладка «Сотрудники»",
+            command=self.show_employees_tab,
+            accelerator="Ctrl+3",
+        )
+        view_menu.add_command(
+            label="Вкладка «МЧД»",
+            command=self.show_mchd_tab,
+            accelerator="Ctrl+4",
+        )
         menubar.add_cascade(label="Вид", menu=view_menu)
 
         # ---------------- Меню "Инструменты" ----------------
         tools_menu = tk.Menu(menubar, tearoff=0)
 
+        # Иерархический уровень: Сотрудники
+        employees_menu = tk.Menu(tools_menu, tearoff=0)
+        employees_menu.add_command(
+            label="Справочник сотрудников",
+            command=self.show_employees_tab,
+        )
+        employees_menu.add_command(
+            label="Добавить сотрудника...",
+            command=self.create_employee,
+        )
+        tools_menu.add_cascade(
+            label="Сотрудники", menu=employees_menu
+        )
+
         # Иерархический уровень: Заявки на сертификаты
         requests_menu = tk.Menu(tools_menu, tearoff=0)
+
         requests_menu.add_command(
             label="Список заявок",
             command=self.show_requests_tab,
@@ -833,6 +909,11 @@ class CertificateAnalyzerApp:
 
         # Иерархический уровень: МЧД
         mchd_menu = tk.Menu(tools_menu, tearoff=0)
+        mchd_menu.add_command(
+            label="Вкладка доверенностей (МЧД)",
+            command=self.show_mchd_tab,
+            accelerator="Ctrl+4",
+        )
         mchd_menu.add_command(
             label="Сканировать папку XML МЧД...",
             command=self.open_mchd,
@@ -880,7 +961,10 @@ class CertificateAnalyzerApp:
         self.root.bind("<F5>", lambda _: self.refresh())
         self.root.bind("<Control-Key-1>", lambda _: self.show_certificates_tab())
         self.root.bind("<Control-Key-2>", lambda _: self.show_requests_tab())
+        self.root.bind("<Control-Key-3>", lambda _: self.show_employees_tab())
+        self.root.bind("<Control-Key-4>", lambda _: self.show_mchd_tab())
         self.root.bind("<Control-n>", lambda _: self.create_certificate_request())
+
         self.root.bind("<Control-N>", lambda _: self.create_certificate_request())
         self.root.bind("<Shift-Delete>", lambda _: self.delete_physical_file())
 

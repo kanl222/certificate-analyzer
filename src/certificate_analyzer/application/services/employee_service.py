@@ -76,3 +76,15 @@ class EmployeeService:
             return existing
         return self.save_employee(Employee(full_name=full_name, department=department))
 
+    def delete_employee(self, employee_id: int) -> bool:
+        """Удаляет сотрудника по его идентификатору.
+
+        Args:
+            employee_id: Идентификатор сотрудника.
+
+        Returns:
+            bool: True, если сотрудник удален, иначе False.
+        """
+        return self.repository.delete(employee_id)
+
+

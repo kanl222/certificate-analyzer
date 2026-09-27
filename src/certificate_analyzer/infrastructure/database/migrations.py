@@ -5,7 +5,7 @@ from pathlib import Path
 import sqlite3
 from datetime import datetime, timezone
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 
@@ -166,6 +166,34 @@ def migrate(engine, path):
                 connection.exec_driver_sql(
                     "CREATE INDEX IF NOT EXISTS ix_audit_events_created_at ON audit_events(created_at)"
                 )
+
+            if current_version < 4:
+                connection.exec_driver_sql(
+                    """CREATE TABLE IF NOT EXISTS mchd_authorities (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        mchd_number VARCHAR(255) NOT NULL,
+                        code VARCHAR(100) NOT NULL,
+                        name VARCHAR(500),
+                        FOREIGN KEY (mchd_number) REFERENCES mchds(unified_number) ON DELETE CASCADE
+                    )"""
+                )
+                connection.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_mchd_authorities_mchd_number ON mchd_authorities(mchd_number)"
+                )
+                connection.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_mchd_authorities_code ON mchd_authorities(code)"
+                )
+                if "mchds" in tables:
+                    rows = connection.exec_driver_sql(
+                        "SELECT unified_number, authority_codes FROM mchds WHERE authority_codes IS NOT NULL AND authority_codes != ''"
+                    ).all()
+                    for num, raw_codes in rows:
+                        codes = [c.strip() for c in (raw_codes or "").split(",") if c.strip()]
+                        for code in codes:
+                            connection.exec_driver_sql(
+                                "INSERT INTO mchd_authorities (mchd_number, code, name) VALUES (?, ?, ?)",
+                                (num, code, None),
+                            )
 
             connection.exec_driver_sql(f"PRAGMA user_version={SCHEMA_VERSION}")
             connection.commit()
