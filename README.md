@@ -79,6 +79,33 @@ systemctl --user status certificate-analyzer.service
 
 Запускайте эти команды от своего пользователя, без `sudo`. DEB должен быть собран для подходящей архитектуры и совместимой Linux-системы.
 
+### RPM-пакет: Fedora, Red Hat Enterprise Linux, Rocky Linux, AlmaLinux, РЕД ОС, openSUSE
+
+Скачайте RPM-пакет из [релизов проекта](https://github.com/kanl222/certificate-analyzer/releases), если он опубликован. Выберите архитектуру вашей системы: `x86_64` или `aarch64`. В каталоге со скачанным пакетом выполните:
+
+```bash
+# Fedora / RHEL / Rocky Linux / AlmaLinux / РЕД ОС
+sudo dnf install ./certificate-analyzer-*.rpm
+
+# openSUSE
+sudo zypper install ./certificate-analyzer-*.rpm
+
+# Запуск приложения
+certificate-analyzer gui
+```
+
+Пакет содержит приложение и интерпретатор Python. Приложение располагается в `/opt/certificate-analyzer`, команда — `/usr/bin/certificate-analyzer`, ярлык появляется в меню приложений.
+
+RPM включает пользовательскую службу `certificate-analyzer.service` глобально: она запускается при следующем входе пользователя. Для запуска в текущей сессии:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user start certificate-analyzer.service
+systemctl --user status certificate-analyzer.service
+```
+
+Запускайте эти команды от своего пользователя, без `sudo`. RPM должен быть собран для подходящей архитектуры и совместимой Linux-системы.
+
 ### Установка из исходников
 
 Нужны Git, Python 3.11+, `uv`, Tkinter и системные компоненты уведомлений/открытия файлов. Из каталога проекта:
@@ -286,13 +313,21 @@ sudo apt remove certificate-analyzer
 
 ### Linux
 
-Сборка DEB выполняется на Linux целевой архитектуры. Нужны `uv` и `dpkg-deb`:
+Сборка пакетов выполняется на Linux целевой архитектуры.
 
+**Сборка DEB** (требуются `uv` и `dpkg-deb`):
 ```bash
 bash packaging/linux/build-deb.sh
 ```
+Результат: `dist/linux/certificate-analyzer_<версия>_<архитектура>.deb`.
 
-Результат: `dist/linux/certificate-analyzer_<версия>_<архитектура>.deb`. Сборка использует Python 3.11 и включает интерпретатор в пакет; совместимость зависит от системных библиотек машины сборки.
+**Сборка RPM** (требуются `uv` и `rpmbuild`):
+```bash
+bash packaging/linux/build-rpm.sh
+```
+Результат: `dist/linux/certificate-analyzer-<версия>-1.<архитектура>.rpm`.
+
+Оба скрипта поддерживают параметр `--bundle-dir <путь>`, позволяющий упаковать уже собранный каталог приложения без повторного запуска PyInstaller. Сборка использует Python 3.11 и включает интерпретатор в пакет; совместимость зависит от системных библиотек машины сборки.
 
 ### Python-пакет
 
