@@ -478,6 +478,7 @@ class MchdView(ttk.Frame):
         parent: tk.Widget,
         application: Any = None,
         on_message: Callable[[str], None] | None = None,
+        on_count_change: Callable[[int], None] | None = None,
         mchd_data: list[dict[str, Any]] | None = None,
         **kwargs,
     ) -> None:
@@ -487,12 +488,14 @@ class MchdView(ttk.Frame):
             parent: Родительский виджет Tkinter.
             application: Контейнер сервисов приложения ApplicationContainer.
             on_message: Функция вывода сообщений в статусную строку.
+            on_count_change: Функция обновления общего количества МЧД.
             mchd_data: Список заранее распарсенных данных МЧД (опционально).
             **kwargs: Дополнительные параметры ttk.Frame.
         """
         super().__init__(parent, **kwargs)
         self.app = application
         self.on_message = on_message or (lambda _: None)
+        self.on_count_change = on_count_change or (lambda _: None)
         self.mchd_data: list[dict[str, Any]] = (
             list(mchd_data) if mchd_data is not None else []
         )
@@ -547,16 +550,17 @@ class MchdView(ttk.Frame):
         filter_bar = ttk.Frame(self, style="Panel.TFrame", padding=(8, 6))
         filter_bar.pack(fill=tk.X, pady=(0, 8))
 
-        ttk.Label(filter_bar, text="Поиск:", style="Panel.TLabel").pack(
-            side=tk.LEFT, padx=(0, 4)
+        filter_bar.columnconfigure(1, weight=1)
+        ttk.Label(filter_bar, text="Поиск:", style="Panel.TLabel").grid(
+            row=0, column=0, sticky=tk.W
         )
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self.apply_filters())
         search_entry = ttk.Entry(filter_bar, textvariable=self.search_var, width=28)
-        search_entry.pack(side=tk.LEFT, padx=(0, 10))
+        search_entry.grid(row=0, column=1, sticky=tk.EW, padx=(6, 12))
 
-        ttk.Label(filter_bar, text="Статус:", style="Panel.TLabel").pack(
-            side=tk.LEFT, padx=(0, 4)
+        ttk.Label(filter_bar, text="Статус:", style="Panel.TLabel").grid(
+            row=0, column=2, sticky=tk.E, padx=(0, 4)
         )
         self.status_var = tk.StringVar(value="Все статусы")
         status_combo = ttk.Combobox(
@@ -572,7 +576,7 @@ class MchdView(ttk.Frame):
             state="readonly",
             width=14,
         )
-        status_combo.pack(side=tk.LEFT, padx=(0, 8))
+        status_combo.grid(row=0, column=3, padx=(0, 8))
         status_combo.bind("<<ComboboxSelected>>", lambda _: self.apply_filters())
 
         ttk.Button(
@@ -581,23 +585,38 @@ class MchdView(ttk.Frame):
             command=self.clear_search,
             width=10,
             style="Toolbar.TButton",
-        ).pack(side=tk.LEFT)
+        ).grid(row=0, column=4)
 
         self.stats_label = ttk.Label(
             filter_bar,
             text="",
             font=(UI_FONT, 9, "bold"),
             foreground=ACCENT_COLOR,
+            style="Panel.TLabel",
         )
-        self.stats_label.pack(side=tk.RIGHT, padx=5)
 
         # 3. Баннер предупреждения о дубликатах доверенностей
         self.duplicate_frame = ttk.Frame(self)
         self.duplicate_frame.pack(fill=tk.X, pady=(0, 6))
 
-        # 4. Основная таблица МЧД (Treeview)
-        table_frame = ttk.Frame(self)
-        table_frame.pack(fill=tk.BOTH, expand=True)
+        # 4. Рабочая область: список слева, свойства выбранной МЧД справа.
+        content = ttk.Panedwindow(self, orient=tk.HORIZONTAL)
+        content.pack(fill=tk.BOTH, expand=True)
+
+        table_frame = ttk.Frame(content)
+        details_frame = ttk.LabelFrame(
+            content,
+            text=" Свойства МЧД ",
+            padding=10,
+            style="Panel.TLabelframe",
+            width=380,
+        )
+        content.add(table_frame, weight=4)
+        content.add(details_frame, weight=1)
+        self.content_pane = content
+        self._last_layout_width = 0
+        self._pane_layout_after: str | None = None
+        self.bind("<Configure>", self._resize_content_pane, add="+")
 
         self.tree = ttk.Treeview(
             table_frame,
@@ -675,36 +694,71 @@ class MchdView(ttk.Frame):
 
         self.tree.bind("<Button-3>", _on_context)
 
-        # 5. Нижняя панель сведений и кодов полномочий
-        bottom_frame = ttk.LabelFrame(
-            self, text=" Полномочия выбранных МЧД ", padding=8
-        )
-        bottom_frame.pack(fill=tk.X, pady=(8, 0))
-
-        info_line = ttk.Frame(bottom_frame)
-        info_line.pack(fill=tk.X, pady=(0, 4))
-
+        # 5. Свойства, полномочия и действия выбранной МЧД
         self.selected_info_label = ttk.Label(
-            info_line, text="Выбрано: 0 МЧД", font=(UI_FONT, 9, "bold")
+            details_frame,
+            text="Выбрано: 0 МЧД",
+            font=(UI_FONT, 9, "bold"),
+            style="Panel.TLabel",
         )
-        self.selected_info_label.pack(side=tk.LEFT)
+        self.selected_info_label.pack(fill=tk.X, pady=(0, 6))
 
         self.person_info_label = ttk.Label(
-            info_line, text="", font=(UI_FONT, 9), foreground=ACCENT_COLOR
+            details_frame,
+            text="",
+            font=(UI_FONT, 9),
+            style="Panel.TLabel",
+            wraplength=320,
+            justify=tk.LEFT,
         )
-        self.person_info_label.pack(side=tk.LEFT, padx=12)
+        self.person_info_label.pack(fill=tk.X, pady=(0, 8))
 
-        ttk.Button(
-            info_line,
-            text="Копировать коды",
-            command=self.copy_selected_codes,
-        ).pack(side=tk.RIGHT)
+        self.mchd_detail_fields: dict[str, ttk.Label] = {}
+        property_labels = (
+            ("doc_number", "Номер"),
+            ("status", "Статус"),
+            ("full_name", "Представитель"),
+            ("issuer_org_name", "Доверитель"),
+            ("issue_date", "Дата выдачи"),
+            ("expiry_date", "Действует до"),
+            ("file_name", "Файл"),
+        )
+        properties = ttk.Frame(details_frame, style="Status.TFrame")
+        properties.pack(fill=tk.X)
+        properties.columnconfigure(1, weight=1)
+        for row, (key, title) in enumerate(property_labels):
+            ttk.Label(
+                properties,
+                text=f"{title}:",
+                font=(UI_FONT, 9, "bold"),
+                style="Panel.TLabel",
+            ).grid(row=row, column=0, sticky=tk.NW, padx=(0, 8), pady=3)
+            value = ttk.Label(
+                properties,
+                text="—",
+                style="Panel.TLabel",
+                wraplength=230,
+                justify=tk.LEFT,
+            )
+            value.grid(row=row, column=1, sticky=tk.EW, pady=3)
+            self.mchd_detail_fields[key] = value
 
-        listbox_box = ttk.Frame(bottom_frame)
-        listbox_box.pack(fill=tk.X, expand=True)
+        ttk.Separator(details_frame).pack(fill=tk.X, pady=10)
+        ttk.Label(
+            details_frame,
+            text="Полномочия",
+            font=(UI_FONT, 9, "bold"),
+            style="Panel.TLabel",
+        ).pack(anchor=tk.W, pady=(0, 5))
+
+        listbox_box = ttk.Frame(details_frame, style="Status.TFrame")
+        listbox_box.pack(fill=tk.BOTH, expand=True)
 
         self.codes_listbox = tk.Listbox(
-            listbox_box, height=4, selectmode=tk.SINGLE, font=("Courier New", 9)
+            listbox_box,
+            height=8,
+            selectmode=tk.SINGLE,
+            font=("Courier New", 9),
         )
         self.codes_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
@@ -713,6 +767,71 @@ class MchdView(ttk.Frame):
         )
         scroll_c.pack(side=tk.RIGHT, fill=tk.Y)
         self.codes_listbox.configure(yscrollcommand=scroll_c.set)
+
+        actions = ttk.Frame(details_frame, style="Status.TFrame")
+        actions.pack(fill=tk.X, pady=(8, 0))
+        self.detail_action_buttons: list[ttk.Button] = []
+        for label, command in (
+            ("Открыть карточку", self.view_personal_data),
+            ("Открыть XML", self.open_xml_file),
+            ("Показать в проводнике", self.reveal_file),
+            ("Копировать коды", self.copy_selected_codes),
+        ):
+            button = ttk.Button(
+                actions,
+                text=label,
+                command=command,
+                style="Toolbar.TButton",
+                state="disabled",
+            )
+            button.pack(fill=tk.X, pady=(0, 5))
+            self.detail_action_buttons.append(button)
+        details_frame.bind("<Configure>", self._resize_detail_values, add="+")
+
+    def _resize_content_pane(self, event: tk.Event) -> None:
+        """Планирует раскладку после завершения расчёта геометрии Tk."""
+        if event.widget is not self:
+            return
+        if self._last_layout_width and abs(event.width - self._last_layout_width) < 40:
+            return
+        self._last_layout_width = event.width
+        if self._pane_layout_after is not None:
+            try:
+                self.after_cancel(self._pane_layout_after)
+            except tk.TclError:
+                pass
+        self._pane_layout_after = self.after_idle(self._apply_content_pane_layout)
+
+    def _apply_content_pane_layout(self) -> None:
+        """Устанавливает ширину панелей по фактическому размеру Panedwindow."""
+        self._pane_layout_after = None
+        try:
+            width = self.content_pane.winfo_width()
+            if width <= 1:
+                self._pane_layout_after = self.after(
+                    20,
+                    self._apply_content_pane_layout,
+                )
+                return
+
+            details_width = min(410, max(320, int(width * 0.3)))
+            min_list_width = min(520, max(1, width // 2))
+            min_details_width = min(300, max(190, width // 3))
+            max_position = max(1, width - min_details_width)
+            position = min(
+                max_position,
+                max(min_list_width, width - details_width),
+            )
+            self.content_pane.sashpos(0, position)
+        except tk.TclError:
+            pass
+
+    def _resize_detail_values(self, event: tk.Event) -> None:
+        """Подстраивает перенос значений в карточке МЧД под её ширину."""
+        wraplength = max(150, event.width - 145)
+        self.person_info_label.config(wraplength=max(180, event.width - 24))
+        for label in self.mchd_detail_fields.values():
+            label.config(wraplength=wraplength)
 
     def refresh(self) -> None:
         """Перечитывает данные МЧД из базы данных и обновляет таблицу."""
@@ -725,7 +844,7 @@ class MchdView(ttk.Frame):
 
         self.apply_filters()
         self.check_for_duplicates()
-        self.on_message(f"МЧД загружено: {len(self.mchd_data)}")
+        self.on_count_change(len(self.mchd_data))
 
     def apply_filters(self, *args) -> None:
         """Применяет текстовый поиск и фильтрацию по статусу к списку МЧД."""
@@ -782,9 +901,14 @@ class MchdView(ttk.Frame):
         valid = sum(
             1 for m in self.mchd_data if m.get("status") == "Действует"
         )
-        self.stats_label.config(
-            text=f"Всего: {len(self.mchd_data)}  |  Действуют: {valid}  |  Истекают: {warning}  |  Просрочены: {expired}"
+        summary = (
+            f"Всего: {len(self.mchd_data)}    "
+            f"Действуют: {valid}    "  
+            f"Истекают: {warning}    " 
+            f"Просрочены: {expired}    "
         )
+        self.stats_label.config(text=summary)
+        self.on_message(summary)
 
     @staticmethod
     def _get_status_tag(status_text: str) -> str:
@@ -857,6 +981,9 @@ class MchdView(ttk.Frame):
                 ),
                 tags=tuple(tags),
             )
+
+        self.selected_items = ()
+        self.on_select()
 
     def check_for_duplicates(self) -> None:
         """Проверяет наличие нескольких действующих МЧД у одного человека."""
@@ -952,7 +1079,27 @@ class MchdView(ttk.Frame):
         else:
             self.person_info_label.config(text="")
 
+        self._update_property_panel(selected_mchd)
         self.update_codes_list()
+
+    def _update_property_panel(
+        self,
+        selected_mchd: list[dict[str, Any]],
+    ) -> None:
+        """Заполняет правую панель свойствами одной выбранной доверенности."""
+        record = selected_mchd[0] if len(selected_mchd) == 1 else None
+        for key, label in self.mchd_detail_fields.items():
+            if record is None:
+                label.config(text="—")
+                continue
+            value = record.get(key)
+            if key == "issuer_org_name" and not value:
+                value = record.get("principal_name")
+            label.config(text=str(value or "—"))
+
+        state = "normal" if selected_mchd else "disabled"
+        for button in self.detail_action_buttons:
+            button.config(state=state)
 
     def update_codes_list(self) -> None:
         """Обновляет содержимое списка кодов полномочий для выделенных строк."""

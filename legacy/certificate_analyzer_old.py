@@ -602,7 +602,7 @@ class NotificationHistory:
         title_frame = ttk.Frame(main_frame)
         title_frame.pack(fill=tk.X, pady=(0, 10))
 
-        ttk.Label(title_frame, text="📋 История уведомлений",
+        ttk.Label(title_frame, text=" История уведомлений",
                   font=('Segoe UI', 14, 'bold')).pack(side=tk.LEFT)
 
         ttk.Label(title_frame, text=f"Всего: {len(self.notifications)}",
@@ -614,7 +614,7 @@ class NotificationHistory:
         ttk.Button(btn_frame, text="🗑 Очистить историю",
                    command=self.clear_history, style='Accent.TButton').pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(btn_frame, text="🔄 Обновить",
+        ttk.Button(btn_frame, text="🔄Обновить",
                    command=self.refresh_history_display, style='Accent.TButton').pack(side=tk.LEFT, padx=5)
 
         list_frame = ttk.Frame(main_frame)

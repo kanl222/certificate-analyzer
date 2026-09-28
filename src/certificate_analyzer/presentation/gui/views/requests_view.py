@@ -9,7 +9,6 @@ from certificate_analyzer.domain.enums.certificate_request_status import (
 )
 from certificate_analyzer.domain.models.certificate_request import CertificateRequest
 from certificate_analyzer.presentation.gui.styles import (
-    TEXT_COLOR,
     UI_FONT,
 )
 
@@ -226,15 +225,18 @@ class RequestsView(ttk.Frame):
         filters = ttk.Frame(self, style="Panel.TFrame", padding=(8, 6))
         filters.pack(fill="x", pady=(0, 8))
 
-        ttk.Label(filters, text="Поиск:", style="Panel.TLabel").pack(side="left")
+        filters.columnconfigure(1, weight=1)
+        ttk.Label(filters, text="Поиск:", style="Panel.TLabel").grid(
+            row=0, column=0, sticky="w"
+        )
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self.refresh())
-        ttk.Entry(filters, textvariable=self.search_var, width=25).pack(
-            side="left", padx=5
+        ttk.Entry(filters, textvariable=self.search_var, width=25).grid(
+            row=0, column=1, sticky="ew", padx=(6, 12)
         )
 
-        ttk.Label(filters, text="Статус:", style="Panel.TLabel").pack(
-            side="left", padx=(10, 2)
+        ttk.Label(filters, text="Статус:", style="Panel.TLabel").grid(
+            row=0, column=2, padx=(0, 4)
         )
         self.status_var = tk.StringVar(value="Все статусы")
         status_combo = ttk.Combobox(
@@ -244,7 +246,7 @@ class RequestsView(ttk.Frame):
             state="readonly",
             width=16,
         )
-        status_combo.pack(side="left", padx=5)
+        status_combo.grid(row=0, column=3, padx=(0, 8))
         status_combo.bind("<<ComboboxSelected>>", lambda _: self.refresh())
 
         ttk.Button(
@@ -252,10 +254,9 @@ class RequestsView(ttk.Frame):
             text="Сбросить",
             command=self.clear_filters,
             style="Toolbar.TButton",
-        ).pack(side="left", padx=5)
+        ).grid(row=0, column=4)
 
-        self.stats_label = ttk.Label(self, font=(UI_FONT, 10, "bold"), foreground=TEXT_COLOR)
-        self.stats_label.pack(anchor="w", pady=(0, 6))
+        self.stats_label = ttk.Label(self, style="Summary.TLabel")
 
         # Таблица Treeview
         table_frame = ttk.Frame(self)
@@ -273,7 +274,16 @@ class RequestsView(ttk.Frame):
 
         scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         scrollbar.pack(side="right", fill="y")
-        self.tree.configure(yscrollcommand=scrollbar.set)
+        scroll_x = ttk.Scrollbar(
+            table_frame,
+            orient="horizontal",
+            command=self.tree.xview,
+        )
+        scroll_x.pack(side="bottom", fill="x")
+        self.tree.configure(
+            yscrollcommand=scrollbar.set,
+            xscrollcommand=scroll_x.set,
+        )
         self.tree.pack(fill="both", expand=True)
 
         # Подсветка статусов
@@ -282,6 +292,32 @@ class RequestsView(ttk.Frame):
         self.tree.tag_configure("processed", foreground="#6c757d")
         self.tree.tag_configure("rejected", foreground="#dc3545")
         self.tree.tag_configure("received", foreground="#0f5132")
+        self.tree.bind("<Button-3>", self._show_context_menu)
+        self.tree.bind("<Double-1>", lambda _: self.show_status_dialog())
+
+        self.context_menu = tk.Menu(self, tearoff=0)
+        self.context_menu.add_command(
+            label="Сменить статус…",
+            command=self.show_status_dialog,
+        )
+        self.context_menu.add_command(
+            label="Привязать сертификат…",
+            command=self.show_link_dialog,
+        )
+        self.context_menu.add_separator()
+        self.context_menu.add_command(
+            label="Отметить обработанной",
+            command=self.mark_processed,
+        )
+
+    def _show_context_menu(self, event: tk.Event) -> None:
+        """Выбирает заявку под курсором и показывает доступные действия."""
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+        self.tree.selection_set(item)
+        self.tree.focus(item)
+        self.context_menu.post(event.x_root, event.y_root)
 
     def clear_filters(self) -> None:
         """Сбрасывает установленные фильтры поиска и статуса."""
@@ -343,10 +379,14 @@ class RequestsView(ttk.Frame):
                 tags=(tag,) if tag else (),
             )
 
-        self.stats_label.config(
-            text=f"Всего заявок: {len(self.requests)}   В работе: {counts.get(CertificateRequestStatus.IN_PROGRESS, 0)}   Выпущено: {counts.get(CertificateRequestStatus.ISSUED, 0)}   Обработано: {counts.get(CertificateRequestStatus.PROCESSED, 0)}"
+        summary = (
+            f"Всего заявок: {len(self.requests)}   "
+            f"В работе: {counts.get(CertificateRequestStatus.IN_PROGRESS, 0)}   "
+            f"Выпущено: {counts.get(CertificateRequestStatus.ISSUED, 0)}   "
+            f"Обработано: {counts.get(CertificateRequestStatus.PROCESSED, 0)}"
         )
-        self.on_message(f"Заявок загружено: {len(self.requests)}")
+        self.stats_label.config(text=summary)
+        self.on_message(summary)
 
     def show_create_dialog_for(
         self,

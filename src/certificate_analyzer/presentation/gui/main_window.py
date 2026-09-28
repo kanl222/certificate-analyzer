@@ -1,26 +1,20 @@
-"""Desktop view of the shared SQLAlchemy-backed application services."""
+"""Главное окно приложения Certificate Analyzer и координация подсистем."""
 
 import tkinter as tk
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
-from datetime import date
-from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import messagebox, ttk
+from typing import Any, Callable
 
-from certificate_analyzer.application.dto.certificate_dto import \
-    certificate_to_dict
-from certificate_analyzer.application.dto.certificate_query import \
-    CertificateQuery
 from certificate_analyzer.bootstrap import create_application
-from certificate_analyzer.domain.enums.certificate_status import \
-    CertificateStatus
-from certificate_analyzer.infrastructure.config.config_loader import \
-    save_settings
-from certificate_analyzer.presentation.gui.styles import (
-    UI_FONT,
-    configure_gui_styles,
-)
+from certificate_analyzer.runtime.service_status import monitoring_process_status
+from certificate_analyzer.presentation.gui.menu_bar import AppMenuBar
+from certificate_analyzer.presentation.gui.styles import configure_gui_styles
+from certificate_analyzer.presentation.gui.task_runner import TaskRunner
 from certificate_analyzer.presentation.gui.views.audit_view import AuditWindow
+from certificate_analyzer.presentation.gui.views.certificates_view import (
+    COLUMNS,
+    STATUS_LABELS,
+    CertificatesView,
+)
 from certificate_analyzer.presentation.gui.views.employees_view import (
     EmployeesView,
 )
@@ -34,250 +28,487 @@ from certificate_analyzer.presentation.gui.views.normative_view import (
 from certificate_analyzer.presentation.gui.views.requests_view import (
     RequestsView,
 )
-from certificate_analyzer.presentation.gui.widgets.certificate_details import (
-    CertificateDetails,
+from certificate_analyzer.presentation.gui.views.settings_view import (
+    SettingsDialog,
 )
 
-
-STATUS_LABELS = {
-    "Все статусы": None,
-    "Активные": CertificateStatus.ACTIVE,
-    "Истекающие": CertificateStatus.EXPIRING_SOON,
-    "Просроченные": CertificateStatus.EXPIRED,
-    "Недействительные": CertificateStatus.INVALID,
-    "Отозванные": CertificateStatus.REVOKED,
-}
-COLUMNS = {
-    "subject": ("ФИО", 200),
-    "original_name": ("Файл", 180),
-    "valid_to": ("Действителен до", 120),
-    "department": ("Подразделение", 180),
-    "status": ("Статус", 140),
-    "issuer": ("Издатель", 180),
-}
+__all__ = [
+    "COLUMNS",
+    "STATUS_LABELS",
+    "CertificateAnalyzerApp",
+]
 
 
 class CertificateAnalyzerApp:
-    """Widgets never own database sessions or the authoritative certificate collection."""
+    """Главный координатор приложения и контейнер вкладок графического интерфейса."""
 
-    def __init__(self, root, application=None, config_path=None, destroy_root: bool = True):
+    def __init__(
+        self,
+        root: tk.Tk | tk.Toplevel,
+        application: Any = None,
+        config_path: Any = None,
+        destroy_root: bool = True,
+    ) -> None:
+        """Инициализирует главное окно приложения и его компоненты.
+
+        Args:
+            root: Корневое окно Tkinter.
+            application: Экземпляр контейнера сервисов ApplicationContainer.
+            config_path: Путь к файлу конфигурации settings.json.
+            destroy_root: Уничтожать ли корневое окно при выходе из приложения.
+        """
         self.root = root
         self.app = application or create_application(config_path)
         self._owns_app = application is None
         self._destroy_root = destroy_root
         self.config_path = config_path
-        self.executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="certificate-import"
-        )
-        self.future = None
+
         self.closing = False
-        self.search_after = None
-        self.refresh_after = None
-        self.offset = 0
-        self.sort = "subject"
-        self.descending = False
-        self.query = CertificateQuery()
-        self._page = {}
-        self.root.title("Хранилище сертификатов")
-        self.root.geometry("1200x760")
-        self.root.minsize(860, 540)
+        self.refresh_after: str | None = None
+        self.monitor_status_after: str | None = None
+        self._notification_history: NotificationHistory | None = None
+        self.root.title("Менеджер сертификатов")
+        self._configure_window_geometry()
+
         self._build_ui()
         self.refresh()
         self._schedule_refresh()
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
-    def _build_ui(self):
+    def _configure_window_geometry(self) -> None:
+        """Выбирает удобный стартовый размер с учётом разрешения экрана."""
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        available_width = max(760, screen_width - 40)
+        available_height = max(560, screen_height - 80)
+        width = min(1440, max(1000, int(screen_width * 0.8)), available_width)
+        height = min(900, max(680, int(screen_height * 0.82)), available_height)
+        x = max(0, (screen_width - width) // 2)
+        y = max(0, (screen_height - height) // 2)
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
+        self.root.minsize(min(1000, width), min(650, height))
+
+    def _build_ui(self) -> None:
+        """Инициализирует графические элементы интерфейса, меню и вкладки.
+
+        Returns:
+            None
+        """
         configure_gui_styles(self.root)
-        frame = ttk.Frame(self.root, padding=14)
+        frame = ttk.Frame(self.root, padding=12, style="App.TFrame")
         frame.pack(fill="both", expand=True)
 
+        # Контейнер вкладок
         self.notebook = ttk.Notebook(frame)
         self.notebook.pack(fill="both", expand=True)
+        self.notebook.enable_traversal()
 
-        self.certs_tab = ttk.Frame(self.notebook, padding=6)
+        # Вкладка 1: Сертификаты
+        self.certs_tab = CertificatesView(
+            self.notebook,
+            application=self.app,
+            submit_task=self._submit,
+            on_message=self.set_message,
+            config_path=self.config_path,
+            padding=6,
+        )
+        self.certificates_view = self.certs_tab
+
+        # Вкладка 2: Заявки
         self.requests_tab = ttk.Frame(self.notebook, padding=6)
+        self.requests_view = RequestsView(
+            self.requests_tab,
+            application=self.app,
+            on_message=self.set_message,
+        )
+        self.requests_view.pack(fill="both", expand=True)
+
+        # Вкладка 3: Сотрудники
         self.employees_tab = ttk.Frame(self.notebook, padding=6)
+        self.employees_view = EmployeesView(
+            self.employees_tab,
+            application=self.app,
+            on_message=self.set_message,
+            on_create_request=self._open_request_dialog_for_employee,
+        )
+        self.employees_view.pack(fill="both", expand=True)
+
+        # Вкладка 4: МЧД
         self.mchd_tab = ttk.Frame(self.notebook, padding=6)
+        self.mchd_view = MchdView(
+            self.mchd_tab,
+            application=self.app,
+            on_message=self.set_message,
+        )
+        self.mchd_view.pack(fill="both", expand=True)
 
         self.notebook.add(self.certs_tab, text="Сертификаты")
         self.notebook.add(self.requests_tab, text="Заявки")
         self.notebook.add(self.employees_tab, text="Сотрудники")
         self.notebook.add(self.mchd_tab, text="МЧД")
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
-        toolbar = ttk.Frame(
-            self.certs_tab, style="Panel.TFrame", padding=(8, 6)
+
+        # Статусная строка и компактный индикатор фоновых операций
+        status_bar = ttk.Frame(frame, style="Status.TFrame", padding=(8, 5))
+        status_bar.pack(fill="x", pady=(4, 0))
+        self.message = ttk.Label(status_bar, text="Загрузка…", style="Status.TLabel")
+        self.message.pack(side="left")
+        self.progress = ttk.Progressbar(
+            status_bar,
+            mode="indeterminate",
+            length=120,
         )
-        toolbar.pack(fill="x", pady=(0, 8))
-        self.import_buttons = []
-        for label, action, button_style in (
-            ("Добавить сертификат", self.import_files, "Accent.TButton"),
-            ("Импорт папки", self.import_folder, "Toolbar.TButton"),
-        ):
-            button = ttk.Button(
-                toolbar, text=label, command=action, style=button_style
+        self.monitor_status = ttk.Label(
+            status_bar,
+            text="Мониторинг: проверка…",
+            style="Status.TLabel",
+        )
+        self.monitor_status.pack(side="right")
+
+        # Менеджер фоновых задач
+        self.task_runner = TaskRunner(
+            root=self.root,
+            progress_bar=self.progress,
+            on_message=self.set_message,
+            on_active_change=self._on_task_activity_change,
+            on_close_ready=self._finish_close,
+        )
+
+        # Главное меню приложения
+        self.menu_bar = AppMenuBar(
+            root=self.root,
+            handler=self,
+            status_labels=STATUS_LABELS,
+            status_var=self.certs_tab.status_var,
+        )
+        self.menubar = self.menu_bar.menubar
+
+        self._schedule_monitor_status()
+
+    def _schedule_monitor_status(self) -> None:
+        """Обновляет в нижней панели состояние системной службы мониторинга."""
+        if self.closing:
+            return
+        self.monitor_status.config(text=monitoring_process_status())
+        self.monitor_status_after = self.root.after(
+            30000, self._schedule_monitor_status
+        )
+
+    def _on_task_activity_change(self, is_active: bool) -> None:
+        """Переключает доступность кнопок импорта при запуске/завершении фоновых задач.
+
+        Args:
+            is_active: Флаг активности фоновой задачи.
+
+        Returns:
+            None
+        """
+        state = "disabled" if is_active else "normal"
+        for button in self.import_buttons:
+            button.config(state=state)
+        if is_active:
+            self.progress.pack(
+                side="left",
+                padx=(12, 0),
+                after=self.message,
             )
-            button.pack(side="left", padx=(0, 6))
-            self.import_buttons.append(button)
+        else:
+            self.progress.pack_forget()
 
-        ttk.Button(
-            toolbar,
-            text="Обновить",
-            command=self.refresh,
-            style="Toolbar.TButton",
-        ).pack(side="left", padx=3)
-        ttk.Button(
-            toolbar,
-            text="Отчёт",
-            command=self.export_report,
-            style="Toolbar.TButton",
-        ).pack(side="left", padx=3)
-        self.stats_label = ttk.Label(self.certs_tab, font=(UI_FONT, 11, "bold"))
-        self.stats_label.pack(anchor="w", pady=(2, 8))
-        filters = ttk.Frame(
-            self.certs_tab, style="Panel.TFrame", padding=(8, 6)
-        )
-        filters.pack(fill="x", pady=(0, 8))
-        ttk.Label(filters, text="Поиск:", style="Panel.TLabel").pack(side="left")
-        self.search_var = tk.StringVar()
-        self.search_var.trace_add("write", self._search_changed)
-        ttk.Entry(filters, textvariable=self.search_var, width=25).pack(
-            side="left", padx=5
-        )
-        self.status_var = tk.StringVar(value="Все статусы")
-        status = ttk.Combobox(
-            filters,
-            textvariable=self.status_var,
-            values=list(STATUS_LABELS),
-            state="readonly",
-            width=18,
-        )
-        status.pack(side="left", padx=5)
-        status.bind("<<ComboboxSelected>>", lambda _: self.refresh(reset=True))
-        ttk.Label(filters, text="Срок с:", style="Panel.TLabel").pack(
-            side="left", padx=(8, 2)
-        )
-        self.date_from_var = tk.StringVar()
-        ttk.Entry(filters, textvariable=self.date_from_var, width=11).pack(side="left")
-        ttk.Label(filters, text="по:", style="Panel.TLabel").pack(
-            side="left", padx=2
-        )
-        self.date_to_var = tk.StringVar()
-        ttk.Entry(filters, textvariable=self.date_to_var, width=11).pack(side="left")
-        ttk.Button(
-            filters,
-            text="Применить",
-            command=lambda: self.refresh(reset=True),
-            style="Toolbar.TButton",
-        ).pack(side="left", padx=5)
-        ttk.Button(
-            filters,
-            text="Сбросить",
-            command=self.clear_filters,
-            style="Toolbar.TButton",
-        ).pack(side="left")
-        ttk.Label(
-            self.certs_tab,
-            text="Даты фильтра: ГГГГ-ММ-ДД. Поиск: ФИО, файл, номер, email, кабинет, подразделение, телефон.",
-        ).pack(anchor="w")
-        table = ttk.Frame(self.certs_tab)
-        table.pack(fill="both", expand=True, pady=(6, 0))
-        self.tree = ttk.Treeview(
-            table, columns=list(COLUMNS), show="headings", selectmode="extended"
-        )
-        for key, (title, width) in COLUMNS.items():
-            self.tree.heading(
-                key, text=title, command=lambda key=key: self.sort_by(key)
-            )
-            self.tree.column(key, width=width, minwidth=90)
-        scroll = ttk.Scrollbar(table, command=self.tree.yview)
-        scroll.pack(side="right", fill="y")
-        self.tree.configure(yscrollcommand=scroll.set)
-        self.tree.pack(fill="both", expand=True)
-        self.tree.tag_configure("expired", foreground="#a82020")
-        self.tree.tag_configure("warning", foreground="#805500")
-        self.tree.bind("<<TreeviewSelect>>", self.show_details)
-        self.tree.bind("<Double-1>", self.open_certificate)
+    def set_message(self, text: str) -> None:
+        """Устанавливает текст статусной строки приложения.
 
-        self._tree_menu = tk.Menu(self.root, tearoff=0)
-        self._tree_menu.add_command(label="Открыть файл", command=self.open_certificate)
-        self._tree_menu.add_command(
-            label="Показать в проводнике", command=self.reveal_certificate_file
-        )
-        self._tree_menu.add_separator()
-        self._tree_menu.add_command(label="Удалить из учета", command=self.delete_selected)
-        self._tree_menu.add_command(
-            label="Удалить физический файл (в корзину)...", command=self.delete_physical_file
+        Args:
+            text: Текст сообщения для отображения.
+
+        Returns:
+            None
+        """
+        if hasattr(self, "message") and self.message.winfo_exists():
+            self.message.config(text=text)
+
+    # ---------------- Делегаты совместимости для вкладки сертификатов ----------------
+
+    @property
+    def tree(self) -> ttk.Treeview:
+        """Возвращает дерево таблицы сертификатов."""
+        return self.certs_tab.tree
+
+    @property
+    def search_var(self) -> tk.StringVar:
+        """Возвращает переменную строки поиска сертификатов."""
+        return self.certs_tab.search_var
+
+    @property
+    def status_var(self) -> tk.StringVar:
+        """Возвращает переменную фильтра по статусу сертификатов."""
+        return self.certs_tab.status_var
+
+    @property
+    def date_from_var(self) -> tk.StringVar:
+        """Возвращает переменную фильтра даты начала срока действия."""
+        return self.certs_tab.date_from_var
+
+    @property
+    def date_to_var(self) -> tk.StringVar:
+        """Возвращает переменную фильтра даты окончания срока действия."""
+        return self.certs_tab.date_to_var
+
+    @property
+    def details(self) -> Any:
+        """Возвращает виджет подробной информации о выбранном сертификате."""
+        return self.certs_tab.details
+
+    @property
+    def import_buttons(self) -> list[ttk.Button]:
+        """Возвращает кнопки панели импорта сертификатов."""
+        return self.certs_tab.import_buttons
+
+    @property
+    def stats_label(self) -> ttk.Label:
+        """Возвращает виджет метки статистики сертификатов."""
+        return self.certs_tab.stats_label
+
+    @property
+    def page_label(self) -> ttk.Label:
+        """Возвращает виджет метки текущей страницы пагинации."""
+        return self.certs_tab.page_label
+
+    @property
+    def previous_button(self) -> ttk.Button:
+        """Возвращает кнопку перехода на предыдущую страницу."""
+        return self.certs_tab.previous_button
+
+    @property
+    def next_button(self) -> ttk.Button:
+        """Возвращает кнопку перехода на следующую страницу."""
+        return self.certs_tab.next_button
+
+    @property
+    def offset(self) -> int:
+        """Возвращает текущее смещение пагинации сертификатов."""
+        return self.certs_tab.offset
+
+    @offset.setter
+    def offset(self, val: int) -> None:
+        self.certs_tab.offset = val
+
+    @property
+    def sort(self) -> str:
+        """Возвращает текущую колонку сортировки сертификатов."""
+        return self.certs_tab.sort
+
+    @sort.setter
+    def sort(self, val: str) -> None:
+        self.certs_tab.sort = val
+
+    @property
+    def descending(self) -> bool:
+        """Возвращает направление сортировки сертификатов."""
+        return self.certs_tab.descending
+
+    @descending.setter
+    def descending(self, val: bool) -> None:
+        self.certs_tab.descending = val
+
+    @property
+    def query(self) -> Any:
+        """Возвращает текущий запрос выборки сертификатов."""
+        return self.certs_tab.query
+
+    @query.setter
+    def query(self, val: Any) -> None:
+        self.certs_tab.query = val
+
+    @property
+    def _page(self) -> dict[str, Any]:
+        """Возвращает словарь сертификатов текущей страницы по отпечаткам."""
+        return self.certs_tab._page
+
+    @_page.setter
+    def _page(self, val: dict[str, Any]) -> None:
+        self.certs_tab._page = val
+
+    @property
+    def future(self) -> Any:
+        """Возвращает текущий Future выполняющейся фоновой задачи."""
+        return self.task_runner.future
+
+    @future.setter
+    def future(self, val: Any) -> None:
+        self.task_runner.future = val
+
+    @property
+    def executor(self) -> Any:
+        """Возвращает ThreadPoolExecutor менеджера задач."""
+        return self.task_runner.executor
+
+    def _submit(
+        self,
+        action: Callable[[], Any],
+        finished: Callable[[Any], None],
+    ) -> bool:
+        """Отправляет операцию на выполнение в фоновый поток TaskRunner.
+
+        Args:
+            action: Функция операции.
+            finished: Колбэк получения результата.
+
+        Returns:
+            bool: True при успешном запуске задачи.
+        """
+        return self.task_runner.submit(
+            action=action,
+            finished=finished,
+            post_refresh=self._refresh_active_tab,
         )
 
-        def _on_tree_context(event):
-            item = self.tree.identify_row(event.y)
-            if item:
-                self.tree.selection_set(item)
-                self.show_details()
-                self._tree_menu.post(event.x_root, event.y_root)
+    def _import_finished(self, result: Any) -> None:
+        """Отображает результат импорта сертификатов.
 
-        self.tree.bind("<Button-3>", _on_tree_context)
-        paging = ttk.Frame(
-            self.certs_tab, style="Panel.TFrame", padding=(8, 6)
-        )
-        paging.pack(fill="x", pady=(8, 0))
-        self.previous_button = ttk.Button(
-            paging,
-            text="Предыдущие",
-            command=lambda: self.change_page(-100),
-            style="Toolbar.TButton",
-        )
-        self.previous_button.pack(side="left")
-        self.next_button = ttk.Button(
-            paging,
-            text="Следующие",
-            command=lambda: self.change_page(100),
-            style="Toolbar.TButton",
-        )
-        self.next_button.pack(side="left", padx=5)
-        self.page_label = ttk.Label(paging)
-        self.page_label.pack(side="left", padx=10)
-        self.details = CertificateDetails(self.certs_tab)
-        self.details.pack(fill="x", pady=5)
+        Args:
+            result: Результат операции импорта ImportResult.
 
-        self.progress = ttk.Progressbar(frame, mode="indeterminate")
-        self.progress.pack(fill="x", pady=(4, 0))
-        self.message = ttk.Label(frame, text="Готово")
-        self.message.pack(anchor="w")
+        Returns:
+            None
+        """
+        self.certs_tab._import_finished(result)
 
-        # Вкладка "Заявки"
-        self.requests_view = RequestsView(
-            self.requests_tab,
-            application=self.app,
-            on_message=lambda msg: self.message.config(text=msg)
-            if hasattr(self, "message")
-            else None,
-        )
-        self.requests_view.pack(fill="both", expand=True)
+    def _apply_search(self) -> None:
+        """Применяет поисковую строку к списку сертификатов.
 
-        # Вкладка "Сотрудники"
-        self.employees_view = EmployeesView(
-            self.employees_tab,
-            application=self.app,
-            on_message=lambda msg: self.message.config(text=msg)
-            if hasattr(self, "message")
-            else None,
-        )
-        self.employees_view.pack(fill="both", expand=True)
+        Returns:
+            None
+        """
+        self.certs_tab._apply_search()
 
-        # Вкладка "МЧД"
-        self.mchd_view = MchdView(
-            self.mchd_tab,
-            application=self.app,
-            on_message=lambda msg: self.message.config(text=msg)
-            if hasattr(self, "message")
-            else None,
-        )
-        self.mchd_view.pack(fill="both", expand=True)
+    def clear_filters(self) -> None:
+        """Сбрасывает фильтры вкладки сертификатов.
 
-        self._create_menu_bar()
+        Returns:
+            None
+        """
+        self.certs_tab.clear_filters()
 
-    def _on_tab_changed(self, event=None):
+    def refresh(self, reset: bool = False) -> None:
+        """Обновляет данные активной таблицы сертификатов.
+
+        Args:
+            reset: Сбросить ли пагинацию на первую страницу.
+
+        Returns:
+            None
+        """
+        if self.closing:
+            return
+        self.certs_tab.refresh(reset=reset)
+
+    def sort_by(self, key: str) -> None:
+        """Сортирует сертификаты по указанной колонке.
+
+        Args:
+            key: Имя поля для сортировки.
+
+        Returns:
+            None
+        """
+        self.certs_tab.sort_by(key)
+
+    def change_page(self, delta: int) -> None:
+        """Перелистывает страницу списка сертификатов.
+
+        Args:
+            delta: Смещение (+100 или -100).
+
+        Returns:
+            None
+        """
+        self.certs_tab.change_page(delta)
+
+    def show_details(self, _=None) -> None:
+        """Отображает подробности выбранного сертификата.
+
+        Args:
+            _: Событие Tkinter.
+
+        Returns:
+            None
+        """
+        self.certs_tab.show_details(_)
+
+    def open_certificate(self, _=None) -> None:
+        """Открывает выбранный файл сертификата системным просмотрщиком.
+
+        Args:
+            _: Событие Tkinter.
+
+        Returns:
+            None
+        """
+        self.certs_tab.open_certificate(_)
+
+    def reveal_certificate_file(self, _=None) -> None:
+        """Показывает файл выбранного сертификата в проводнике.
+
+        Args:
+            _: Событие Tkinter.
+
+        Returns:
+            None
+        """
+        self.certs_tab.reveal_certificate_file(_)
+
+    def delete_physical_file(self) -> None:
+        """Удаляет файл выбранного сертификата в корзину.
+
+        Returns:
+            None
+        """
+        self.certs_tab.delete_physical_file()
+
+    def delete_selected(self) -> None:
+        """Удаляет выбранные сертификаты из учета БД.
+
+        Returns:
+            None
+        """
+        self.certs_tab.delete_selected()
+
+    def import_files(self) -> None:
+        """Запускает диалог импорта файлов сертификатов.
+
+        Returns:
+            None
+        """
+        self.certs_tab.import_files()
+
+    def import_folder(self) -> None:
+        """Запускает диалог импорта папки с сертификатами.
+
+        Returns:
+            None
+        """
+        self.certs_tab.import_folder()
+
+    def import_phonebook(self) -> None:
+        """Запускает диалог импорта телефонного справочника.
+
+        Returns:
+            None
+        """
+        self.certs_tab.import_phonebook()
+
+    def export_report(self) -> None:
+        """Запускает экспорт текущих записей сертификатов в отчёт.
+
+        Returns:
+            None
+        """
+        self.certs_tab.export_report()
+
+    # ---------------- Навигация по вкладкам ----------------
+
+    def _on_tab_changed(self, event: Any = None) -> None:
         """Обрабатывает событие переключения вкладок главного окна.
 
         Args:
@@ -286,6 +517,10 @@ class CertificateAnalyzerApp:
         Returns:
             None
         """
+        self._refresh_active_tab()
+
+    def _refresh_active_tab(self) -> None:
+        """Обновляет данные и нижнюю сводку только выбранной вкладки."""
         selected_tab = self.notebook.select()
         if not selected_tab:
             return
@@ -299,7 +534,15 @@ class CertificateAnalyzerApp:
         elif tab_text == "Сертификаты":
             self.refresh()
 
-    def show_requests_tab(self):
+    def _open_request_dialog_for_employee(self, employee: Any) -> None:
+        """Открывает форму заявки с данными выбранного сотрудника."""
+        self.show_requests_tab()
+        self.requests_view.show_create_dialog_for(
+            employee.full_name,
+            employee.department or "",
+        )
+
+    def show_requests_tab(self) -> None:
         """Активирует вкладку заявок на сертификаты.
 
         Returns:
@@ -307,7 +550,7 @@ class CertificateAnalyzerApp:
         """
         self.notebook.select(self.requests_tab)
 
-    def show_employees_tab(self):
+    def show_employees_tab(self) -> None:
         """Активирует вкладку сотрудников.
 
         Returns:
@@ -315,7 +558,7 @@ class CertificateAnalyzerApp:
         """
         self.notebook.select(self.employees_tab)
 
-    def show_mchd_tab(self):
+    def show_mchd_tab(self) -> None:
         """Активирует вкладку машиночитаемых доверенностей (МЧД).
 
         Returns:
@@ -323,7 +566,7 @@ class CertificateAnalyzerApp:
         """
         self.notebook.select(self.mchd_tab)
 
-    def show_certificates_tab(self):
+    def show_certificates_tab(self) -> None:
         """Активирует вкладку сертификатов.
 
         Returns:
@@ -331,8 +574,7 @@ class CertificateAnalyzerApp:
         """
         self.notebook.select(self.certs_tab)
 
-
-    def create_certificate_request(self):
+    def create_certificate_request(self) -> None:
         """Переключается на вкладку заявок и открывает диалог создания новой заявки.
 
         Returns:
@@ -342,7 +584,7 @@ class CertificateAnalyzerApp:
         if hasattr(self, "requests_view"):
             self.requests_view.show_create_dialog()
 
-    def create_employee(self):
+    def create_employee(self) -> None:
         """Переключается на вкладку сотрудников и открывает диалог добавления сотрудника.
 
         Returns:
@@ -352,303 +594,32 @@ class CertificateAnalyzerApp:
         if hasattr(self, "employees_view"):
             self.employees_view.show_create_dialog()
 
-
-    def _search_changed(self, *_):
-        if self.search_after:
-            self.root.after_cancel(self.search_after)
-        self.search_after = self.root.after(250, self._apply_search)
-
-    def _apply_search(self):
-        self.search_after = None
-        self.refresh(reset=True)
-
-    def clear_filters(self):
-        self.search_var.set("")
-        self.status_var.set("Все статусы")
-        self.date_from_var.set("")
-        self.date_to_var.set("")
-        self.refresh(reset=True)
-
-    def refresh(self, reset=False):
-        if self.closing:
-            return
-        if reset:
-            self.offset = 0
-        try:
-            query = CertificateQuery(
-                search=self.search_var.get(),
-                status=STATUS_LABELS[self.status_var.get()],
-                date_from=date.fromisoformat(self.date_from_var.get())
-                if self.date_from_var.get()
-                else None,
-                date_to=date.fromisoformat(self.date_to_var.get())
-                if self.date_to_var.get()
-                else None,
-                sort=self.sort,
-                descending=self.descending,
-                limit=100,
-                offset=self.offset,
-            )
-            stats = self.app.certificates.statistics(query)
-            if self.offset >= stats["total"]:
-                self.offset = max(0, (stats["total"] - 1) // 100 * 100)
-                query = replace(query, offset=self.offset)
-            records = self.app.certificates.list(query)
-            self.query = query
-            self._page = {c.fingerprint_sha256: c for c in records}
-            self.tree.delete(*self.tree.get_children())
-            for cert in records:
-                row = certificate_to_dict(cert)
-                tag = (
-                    "expired"
-                    if cert.status == CertificateStatus.EXPIRED
-                    else "warning"
-                    if cert.status == CertificateStatus.EXPIRING_SOON
-                    else ""
-                )
-                self.tree.insert(
-                    "",
-                    "end",
-                    iid=cert.fingerprint_sha256,
-                    values=(
-                        cert.subject,
-                        cert.original_name or Path(cert.source_path).name,
-                        row["valid_to"],
-                        row["department"],
-                        row["status"],
-                        cert.issuer,
-                    ),
-                    tags=(tag,),
-                )
-            self.stats_label.config(
-                text=f"Всего: {stats['total']}    Активные: {stats['ACTIVE']}    Истекающие: {stats['EXPIRING_SOON']}    Просроченные: {stats['EXPIRED']}    Недействительные: {stats['INVALID']}    Отозванные: {stats['REVOKED']}"
-            )
-            self.page_label.config(
-                text=f"{self.offset + 1 if records else 0}–{self.offset + len(records)} из {stats['total']}"
-            )
-            self.previous_button.config(state="normal" if self.offset else "disabled")
-            self.next_button.config(
-                state="normal"
-                if self.offset + len(records) < stats["total"]
-                else "disabled"
-            )
-            self.details.clear()
-        except Exception as exc:
-            self.message.config(text=str(exc))
-
-    def sort_by(self, key):
-        self.descending = not self.descending if self.sort == key else False
-        self.sort = key
-        self.refresh(reset=True)
-
-    def change_page(self, delta):
-        self.offset = max(0, self.offset + delta)
-        self.refresh()
-
-    def _schedule_refresh(self):
-        def tick():
-            self.refresh()
-            if not self.closing:
-                self._schedule_refresh()
-
-        self.refresh_after = self.root.after(60000, tick)
-
-    def _submit(self, action, finished):
-        if self.future and not self.future.done():
-            messagebox.showinfo(
-                "Выполняется операция", "Дождитесь завершения текущей операции."
-            )
-            return
-        if self.closing:
-            return
-        self.progress.start()
-        self.message.config(text="Выполняется операция…")
-        for button in self.import_buttons:
-            button.config(state="disabled")
-        self.future = self.executor.submit(action)
-        self.root.after(50, lambda: self._poll(finished))
-
-    def _poll(self, finished):
-        if not self.future.done():
-            self.root.after(50, lambda: self._poll(finished))
-            return
-        self.progress.stop()
-        for button in self.import_buttons:
-            button.config(state="normal")
-        try:
-            result = self.future.result()
-            if not self.closing:
-                finished(result)
-                self.refresh()
-        except Exception as exc:
-            if not self.closing:
-                self.message.config(text="Операция не завершена")
-                messagebox.showerror("Ошибка", str(exc))
-        finally:
-            self.future = None
-            if self.closing:
-                self._finish_close()
-
-    def _import_finished(self, result):
-        self.message.config(
-            text=f"Добавлено: {result.imported}; обновлено: {result.updated}; без изменений: {result.skipped}; ошибок: {len(result.errors)}"
-        )
-        if result.errors:
-            messagebox.showwarning(
-                "Ошибки импорта",
-                "\n".join(f"{p}: {e}" for p, e in result.errors.items()),
-            )
-
-    def import_files(self):
-        paths = filedialog.askopenfilenames(
-            title="Импорт сертификатов",
-            filetypes=[
-                ("Сертификаты", "*.cer *.crt *.der *.pem"),
-                ("Все файлы", "*.*"),
-            ],
-        )
-        if paths:
-            self._submit(
-                lambda: self.app.certificates.import_files(paths), self._import_finished
-            )
-
-    def import_folder(self):
-        path = filedialog.askdirectory(title="Импорт сертификатов из папки")
-        if path:
-            self._submit(
-                lambda: self.app.certificates.import_folder(path), self._import_finished
-            )
-
-    def import_phonebook(self):
-        path = filedialog.askopenfilename(
-            title="Справочник", filetypes=[("Справочник", "*.txt *.docx")]
-        )
-        if path:
-
-            def finished(count):
-                self.app.settings.phonebook_path = path
-                save_settings(self.app.settings, self.config_path)
-                self.message.config(
-                    text=f"Справочник: {count} записей; контакты обновлены"
-                )
-
-            self._submit(lambda: self.app.certificates.load_phonebook(path), finished)
-
-    def show_details(self, _=None):
-        selection = self.tree.selection()
-        cert = self._page.get(selection[0]) if selection else None
-        if not cert:
-            self.details.clear()
-            return
-        exists = bool(cert.source_path and Path(cert.source_path).is_file())
-        self.details.update_details(
-            {
-                "Subject": cert.subject,
-                "Issuer": cert.issuer,
-                "Serial": cert.serial_number or "—",
-                "SHA-256": cert.fingerprint_sha256,
-                "Путь": cert.source_path
-                if exists
-                else f"Файл отсутствует: {cert.source_path or 'путь не сохранён'}",
-                "Email": cert.email or "—",
-            }
-        )
-
-    def open_certificate(self, _=None):
-        """Открывает файл выбранного сертификата с помощью системного приложения.
+    def open_mchd(self) -> None:
+        """Переключается на вкладку МЧД и запускает диалог сканирования папки XML.
 
         Returns:
             None
         """
-        selected = self.tree.selection()
-        if not selected:
-            return
-        fingerprint = selected[0]
-        try:
-            self.app.certificates.open_file(fingerprint)
-        except (OSError, FileNotFoundError) as exc:
-            messagebox.showerror("Открытие сертификата", str(exc), parent=self.root)
+        self.show_mchd_tab()
+        if hasattr(self, "mchd_view"):
+            self.mchd_view.scan_folder()
 
-    def reveal_certificate_file(self, _=None):
-        """Открывает директорию файла выбранного сертификата и выделяет его в проводнике.
+    # ---------------- Вспомогательные окна и диалоги ----------------
+
+    def show_settings(self) -> None:
+        """Открывает диалоговое окно настроек хранилища и параметров приложения.
 
         Returns:
             None
         """
-        selected = self.tree.selection()
-        if not selected:
-            return
-        fingerprint = selected[0]
-        try:
-            self.app.certificates.reveal_file(fingerprint)
-        except (OSError, FileNotFoundError) as exc:
-            messagebox.showerror("Расположение файла", str(exc), parent=self.root)
-
-    def delete_physical_file(self):
-        """Удаляет физический файл сертификата в корзину с подтверждением пользователя.
-
-        Показывает пользователю путь к файлу и предупреждение о перемещении в корзину.
-
-        Returns:
-            None
-        """
-        selected = self.tree.selection()
-        if not selected:
-            return
-        fingerprint = selected[0]
-        cert = self.app.certificates.get(fingerprint)
-        if not cert:
-            return
-        path = cert.source_path or "путь не определён"
-        if not messagebox.askyesno(
-            "Подтверждение удаления файла",
-            f"Вы действительно хотите удалить физический файл сертификата в корзину?\n\n"
-            f"Файл: {path}\n"
-            f"Владелец: {cert.subject}\n\n"
-            f"Файл будет перемещён в корзину, а привязка к файлу будет удалена из базы данных.",
+        SettingsDialog(
             parent=self.root,
-            icon="warning",
-        ):
-            return
-
-        def finished(deleted: bool):
-            if deleted:
-                self.message.config(text=f"Файл перемещён в корзину: {path}")
-                self.refresh()
-            else:
-                messagebox.showwarning(
-                    "Удаление файла",
-                    f"Файл не найден на диске: {path}",
-                    parent=self.root,
-                )
-
-        self._submit(
-            lambda: self.app.certificates.delete_file(fingerprint, move_to_trash=True),
-            finished,
+            application=self.app,
+            config_path=self.config_path,
+            on_saved=self.set_message,
         )
 
-    def delete_selected(self):
-        """Удаляет выбранные сертификаты из учета в базе данных без удаления файлов с диска.
-
-        Returns:
-            None
-        """
-        keys = list(self.tree.selection())
-        if keys and messagebox.askyesno(
-            "Удаление записей из учета",
-            f"Удалить выбранных записей из учета: {len(keys)}?\n\n"
-            "Внимание: Физические файлы сертификатов сохранятся на диске.",
-            parent=self.root,
-        ):
-            self._submit(
-                lambda: self.app.certificates.delete_records(keys),
-                lambda count: (
-                    self.message.config(text=f"Удалено записей из учета: {count}"),
-                    self.refresh(),
-                ),
-            )
-
-    def show_audit_window(self):
+    def show_audit_window(self) -> None:
         """Отображает окно журнала аудита операций с сертификатами и файлами.
 
         Returns:
@@ -661,324 +632,20 @@ class CertificateAnalyzerApp:
                 "Журнал аудита", "Сервис аудита недоступен.", parent=self.root
             )
 
-    def export_report(self):
-        path = filedialog.asksaveasfilename(
-            title="Отчёт по всем записям текущего фильтра",
-            defaultextension=".xlsx",
-            filetypes=[("Excel", "*.xlsx"), ("PDF", "*.pdf")],
-        )
-        if not path:
-            return
-        query = replace(self.query, limit=None, offset=0)
-        self._submit(
-            lambda: self.app.reports.export(
-                Path(path).suffix.lstrip(".").lower(),
-                self.app.certificates.list(query),
-                [],
-                path,
-            ),
-            lambda output: self.message.config(text=f"Отчёт сохранён: {output}"),
-        )
-
-    def open_mchd(self):
-        """Переключается на вкладку МЧД и запускает диалог сканирования папки XML.
-
-        Returns:
-            None
-        """
-        self.show_mchd_tab()
-        if hasattr(self, "mchd_view"):
-            self.mchd_view.scan_folder()
-
-    def show_settings(self):
-        window = tk.Toplevel(self.root)
-        window.title("Настройки хранилища")
-        frame = ttk.Frame(window, padding=16)
-        frame.pack(fill="both", expand=True)
-        fields = {}
-        values = {
-            "storage_folder": (
-                "Папка сертификатов",
-                str(self.app.certificates.storage.folder),
-            ),
-            "database_path": ("Файл SQLite", str(self.app.database.path)),
-            "export_folder": ("Папка отчётов", self.app.settings.export_folder),
-            "warning_days": (
-                "Предупреждать за дней",
-                str(self.app.settings.warning_days),
-            ),
-            "check_interval": (
-                "Интервал мониторинга, секунд",
-                str(self.app.settings.check_interval),
-            ),
-        }
-        for index, (key, (label, value)) in enumerate(values.items()):
-            ttk.Label(frame, text=label).grid(row=index, column=0, sticky="w", pady=5)
-            fields[key] = tk.StringVar(value=value)
-            ttk.Entry(frame, textvariable=fields[key], width=55).grid(
-                row=index, column=1, padx=10
-            )
-        ttk.Label(
-            frame,
-            text="Настройки вступят в силу после перезапуска. Существующие файлы автоматически не перемещаются.",
-            wraplength=600,
-        ).grid(row=len(values), column=0, columnspan=2, pady=12)
-
-        def save():
-            try:
-                settings = replace(
-                    self.app.settings,
-                    **{
-                        k: int(v.get())
-                        if k in ("warning_days", "check_interval")
-                        else v.get()
-                        for k, v in fields.items()
-                    },
-                )
-                save_settings(settings, self.config_path)
-                window.destroy()
-                self.message.config(
-                    text="Настройки сохранены. Перезапустите приложение."
-                )
-            except (ValueError, OSError) as exc:
-                messagebox.showerror("Настройки", str(exc), parent=window)
-
-        ttk.Button(frame, text="Сохранить", command=save).grid(
-            row=len(values) + 1, column=1, sticky="e"
-        )
-
-    def _create_menu_bar(self):
-        """Создает главное иерархическое меню приложения.
-
-        Инициализирует верхнюю панель меню (Menu Bar) с каскадными подменю:
-        - «Файл»: каскад «Импорт» (файлы, папка, справочник), каскад «Экспорт» (отчёты),
-          «Настройки», «Выход».
-        - «Правка»: «Обновить записи», «Открыть сертификат», «Удалить выбранные записи».
-        - «Вид»: каскад «Фильтр по статусу», каскад «Сортировка», «Сбросить все фильтры».
-        - «Инструменты»: каскад «Машиночитаемые доверенности (МЧД)», «История уведомлений»,
-          «Нормативные документы».
-        - «Справка»: «Нормативная база», «О программе».
-
-        Также настраивает клавиатурные сочетания клавиш (горячие клавиши).
-
-        Returns:
-            None
-        """
-        menubar = tk.Menu(self.root, tearoff=0)
-
-        # ---------------- Меню "Файл" ----------------
-        file_menu = tk.Menu(menubar, tearoff=0)
-
-        # Иерархический уровень: Импорт
-        import_menu = tk.Menu(file_menu, tearoff=0)
-        import_menu.add_command(
-            label="Импорт файлов сертификатов...",
-            command=self.import_files,
-            accelerator="Ctrl+O",
-        )
-        import_menu.add_command(
-            label="Импорт папки с сертификатами...",
-            command=self.import_folder,
-        )
-        import_menu.add_separator()
-        import_menu.add_command(
-            label="Импорт телефонного справочника...",
-            command=self.import_phonebook,
-        )
-        file_menu.add_cascade(label="Импорт", menu=import_menu)
-
-        # Иерархический уровень: Экспорт
-        export_menu = tk.Menu(file_menu, tearoff=0)
-        export_menu.add_command(
-            label="Экспорт отчёта (Excel / PDF)...",
-            command=self.export_report,
-            accelerator="Ctrl+E",
-        )
-        file_menu.add_cascade(label="Экспорт", menu=export_menu)
-
-        file_menu.add_separator()
-        file_menu.add_command(
-            label="Настройки...",
-            command=self.show_settings,
-            accelerator="Ctrl+,",
-        )
-        file_menu.add_separator()
-        file_menu.add_command(
-            label="Выход",
-            command=self.close,
-            accelerator="Alt+F4",
-        )
-        menubar.add_cascade(label="Файл", menu=file_menu)
-
-        # ---------------- Меню "Правка" ----------------
-        edit_menu = tk.Menu(menubar, tearoff=0)
-        edit_menu.add_command(
-            label="Обновить записи",
-            command=self.refresh,
-            accelerator="F5",
-        )
-        edit_menu.add_separator()
-        edit_menu.add_command(
-            label="Открыть сертификат",
-            command=self.open_certificate,
-        )
-        edit_menu.add_command(
-            label="Показать в проводнике",
-            command=self.reveal_certificate_file,
-        )
-        edit_menu.add_separator()
-        edit_menu.add_command(
-            label="Удалить из учета",
-            command=self.delete_selected,
-            accelerator="Delete",
-        )
-        edit_menu.add_command(
-            label="Удалить физический файл (в корзину)...",
-            command=self.delete_physical_file,
-            accelerator="Shift+Delete",
-        )
-        menubar.add_cascade(label="Правка", menu=edit_menu)
-
-        # ---------------- Меню "Вид" ----------------
-        view_menu = tk.Menu(menubar, tearoff=0)
-
-        # Иерархический уровень: Фильтр по статусу
-        status_menu = tk.Menu(view_menu, tearoff=0)
-        for label in STATUS_LABELS:
-            status_menu.add_radiobutton(
-                label=label,
-                variable=self.status_var,
-                value=label,
-                command=lambda: self.refresh(reset=True),
-            )
-
-        view_menu.add_command(
-            label="Вкладка «Сертификаты»",
-            command=self.show_certificates_tab,
-            accelerator="Ctrl+1",
-        )
-        view_menu.add_command(
-            label="Вкладка «Заявки»",
-            command=self.show_requests_tab,
-            accelerator="Ctrl+2",
-        )
-        view_menu.add_command(
-            label="Вкладка «Сотрудники»",
-            command=self.show_employees_tab,
-            accelerator="Ctrl+3",
-        )
-        view_menu.add_command(
-            label="Вкладка «МЧД»",
-            command=self.show_mchd_tab,
-            accelerator="Ctrl+4",
-        )
-        menubar.add_cascade(label="Вид", menu=view_menu)
-
-        # ---------------- Меню "Инструменты" ----------------
-        tools_menu = tk.Menu(menubar, tearoff=0)
-
-        # Иерархический уровень: Сотрудники
-        employees_menu = tk.Menu(tools_menu, tearoff=0)
-        employees_menu.add_command(
-            label="Справочник сотрудников",
-            command=self.show_employees_tab,
-        )
-        employees_menu.add_command(
-            label="Добавить сотрудника...",
-            command=self.create_employee,
-        )
-        tools_menu.add_cascade(
-            label="Сотрудники", menu=employees_menu
-        )
-
-        # Иерархический уровень: Заявки на сертификаты
-        requests_menu = tk.Menu(tools_menu, tearoff=0)
-
-        requests_menu.add_command(
-            label="Список заявок",
-            command=self.show_requests_tab,
-        )
-        requests_menu.add_command(
-            label="Создать новую заявку...",
-            command=self.create_certificate_request,
-            accelerator="Ctrl+N",
-        )
-        tools_menu.add_cascade(
-            label="Заявки на сертификаты", menu=requests_menu
-        )
-
-        # Иерархический уровень: МЧД
-        mchd_menu = tk.Menu(tools_menu, tearoff=0)
-        mchd_menu.add_command(
-            label="Вкладка доверенностей (МЧД)",
-            command=self.show_mchd_tab,
-            accelerator="Ctrl+4",
-        )
-        mchd_menu.add_command(
-            label="Сканировать папку XML МЧД...",
-            command=self.open_mchd,
-        )
-        tools_menu.add_cascade(
-            label="Машиночитаемые доверенности (МЧД)", menu=mchd_menu
-        )
-
-        tools_menu.add_separator()
-        tools_menu.add_command(
-            label="Журнал аудита...",
-            command=self.show_audit_window,
-        )
-        tools_menu.add_command(
-            label="История уведомлений...",
-            command=self.show_notification_history,
-        )
-        tools_menu.add_command(
-            label="Нормативные документы...",
-            command=self.show_normative_docs,
-        )
-        menubar.add_cascade(label="Инструменты", menu=tools_menu)
-
-        # ---------------- Меню "Справка" ----------------
-        help_menu = tk.Menu(menubar, tearoff=0)
-        help_menu.add_command(
-            label="Нормативная база (законы и приказы)...",
-            command=self.show_normative_docs,
-        )
-        help_menu.add_separator()
-        help_menu.add_command(
-            label="О программе...",
-            command=self.show_about,
-        )
-        menubar.add_cascade(label="Справка", menu=help_menu)
-
-        self.root.config(menu=menubar)
-        self.menubar = menubar
-
-        # Регистрация горячих клавиш
-        self.root.bind("<Control-o>", lambda _: self.import_files())
-        self.root.bind("<Control-O>", lambda _: self.import_files())
-        self.root.bind("<Control-e>", lambda _: self.export_report())
-        self.root.bind("<Control-E>", lambda _: self.export_report())
-        self.root.bind("<F5>", lambda _: self.refresh())
-        self.root.bind("<Control-Key-1>", lambda _: self.show_certificates_tab())
-        self.root.bind("<Control-Key-2>", lambda _: self.show_requests_tab())
-        self.root.bind("<Control-Key-3>", lambda _: self.show_employees_tab())
-        self.root.bind("<Control-Key-4>", lambda _: self.show_mchd_tab())
-        self.root.bind("<Control-n>", lambda _: self.create_certificate_request())
-
-        self.root.bind("<Control-N>", lambda _: self.create_certificate_request())
-        self.root.bind("<Shift-Delete>", lambda _: self.delete_physical_file())
-
-    def show_notification_history(self):
+    def show_notification_history(self) -> None:
         """Отображает окно истории уведомлений приложения.
 
         Returns:
             None
         """
-        if not hasattr(self, "_notification_history") or self._notification_history is None:
+        if (
+            not hasattr(self, "_notification_history")
+            or self._notification_history is None
+        ):
             self._notification_history = NotificationHistory(self.root)
         self._notification_history.show_history_window()
 
-    def show_normative_docs(self):
+    def show_normative_docs(self) -> None:
         """Отображает окно с нормативными документами по ЭП и МЧД.
 
         Returns:
@@ -986,7 +653,7 @@ class CertificateAnalyzerApp:
         """
         NormativeWindow(self.root)
 
-    def show_about(self):
+    def show_about(self) -> None:
         """Отображает диалоговое окно с информацией о приложении.
 
         Returns:
@@ -1001,24 +668,51 @@ class CertificateAnalyzerApp:
             parent=self.root,
         )
 
-    def close(self):
+    # ---------------- Жизненный цикл приложения ----------------
+
+    def _schedule_refresh(self) -> None:
+        """Планирует периодическое автообновление данных раз в 60 секунд.
+
+        Returns:
+            None
+        """
+        def tick() -> None:
+            self._refresh_active_tab()
+            if not self.closing:
+                self._schedule_refresh()
+
+        self.refresh_after = self.root.after(60000, tick)
+
+    def close(self) -> None:
+        """Инициирует безопасное закрытие приложения с ожиданием фоновых задач.
+
+        Returns:
+            None
+        """
         self.closing = True
-        if self.search_after:
-            self.root.after_cancel(self.search_after)
-            self.search_after = None
+        self.task_runner.closing = True
+        if hasattr(self.certs_tab, "search_after") and self.certs_tab.search_after:
+            self.certs_tab.after_cancel(self.certs_tab.search_after)
+            self.certs_tab.search_after = None
         if self.refresh_after:
             self.root.after_cancel(self.refresh_after)
             self.refresh_after = None
-        if self.future:
-            self.message.config(text="Завершение текущей операции перед закрытием…")
+        if self.monitor_status_after:
+            self.root.after_cancel(self.monitor_status_after)
+            self.monitor_status_after = None
+        if self.task_runner.future:
+            self.set_message("Завершение текущей операции перед закрытием…")
             return
         self._finish_close()
 
-    def _finish_close(self):
-        self.executor.shutdown(wait=True)
+    def _finish_close(self) -> None:
+        """Завершает работу фонового пула потоков, сервисов и закрывает окно.
+
+        Returns:
+            None
+        """
+        self.task_runner.shutdown(wait=True)
         if self._owns_app:
             self.app.close()
         if self._destroy_root and hasattr(self.root, "destroy"):
             self.root.destroy()
-
-

@@ -1,9 +1,10 @@
+import sys
 from tkinter import ttk
 
 
 BG_COLOR = "#F5F7FA"
-UI_FONT = "Noto Sans"
-MONO_FONT = "DejaVu Sans Mono"
+UI_FONT = "Segoe UI" if sys.platform == "win32" else "Noto Sans"
+MONO_FONT = "Consolas" if sys.platform == "win32" else "DejaVu Sans Mono"
 HEADER_COLOR = "#FFFFFF"
 TEXT_COLOR = "#263238"
 SECONDARY_TEXT_COLOR = "#78909C"
@@ -49,15 +50,16 @@ CAL_TODAY_FG = "#FFFFFF"
 def configure_gui_styles(root) -> None:
     """Настраивает единый внешний вид основных панелей приложения."""
     style = ttk.Style(root)
-    style.theme_use("clam")
+    root.configure(background=BG_COLOR)
 
-    style.configure(
-        ".", font=(UI_FONT, 10), background=BG_COLOR, foreground=TEXT_COLOR
-    )
+    # Не подменяем системную тему: вкладки и остальные стандартные элементы
+    # должны выглядеть привычно для текущей операционной системы.
+    style.configure(".", font=(UI_FONT, 10), foreground=TEXT_COLOR)
+    style.configure("App.TFrame", background=BG_COLOR)
     style.configure("TNotebook", background=BG_COLOR, borderwidth=0)
     style.configure(
         "TNotebook.Tab",
-        font=(UI_FONT, 10, "bold"),
+        font=(UI_FONT, 10),
         padding=(14, 8),
     )
     style.configure(
@@ -65,22 +67,54 @@ def configure_gui_styles(root) -> None:
         rowheight=30,
         background=CARD_BG_COLOR,
         fieldbackground=CARD_BG_COLOR,
+        borderwidth=0,
     )
-    style.configure("Treeview.Heading", font=(UI_FONT, 10, "bold"))
+    style.map(
+        "Treeview",
+        background=[("selected", "#DCE8FF")],
+        foreground=[("selected", TEXT_COLOR)],
+    )
+    style.configure(
+        "Treeview.Heading",
+        font=(UI_FONT, 10, "bold"),
+        padding=(8, 7),
+    )
 
-    style.configure("Panel.TFrame", background=CARD_BG_COLOR)
+    style.configure(
+        "Panel.TFrame",
+        background=CARD_BG_COLOR,
+        borderwidth=1,
+        relief="solid",
+    )
     style.configure(
         "Panel.TLabel", background=CARD_BG_COLOR, foreground=TEXT_COLOR
+    )
+    style.configure("Panel.TLabelframe", background=CARD_BG_COLOR)
+    style.configure(
+        "Panel.TLabelframe.Label",
+        background=CARD_BG_COLOR,
+        foreground=TEXT_COLOR,
+    )
+    style.configure("Status.TFrame", background=CARD_BG_COLOR)
+    style.configure(
+        "Status.TLabel", background=CARD_BG_COLOR, foreground=TEXT_COLOR
+    )
+    style.configure(
+        "Summary.TLabel",
+        background=BG_COLOR,
+        foreground=TEXT_COLOR,
+        font=(UI_FONT, 10, "bold"),
+        padding=(2, 4),
+    )
+    style.configure(
+        "Muted.TLabel",
+        background=BG_COLOR,
+        foreground=SECONDARY_TEXT_COLOR,
+        font=(UI_FONT, 9),
     )
     style.configure("Toolbar.TButton", padding=(10, 6))
     style.configure(
         "Accent.TButton",
-        background=ACCENT_COLOR,
-        foreground="white",
         padding=(12, 6),
-    )
-    style.map(
-        "Accent.TButton",
-        background=[("active", BUTTON_HOVER), ("pressed", BUTTON_HOVER)],
-        foreground=[("disabled", SECONDARY_TEXT_COLOR)],
+        font=(UI_FONT, 10, "bold"),
     )

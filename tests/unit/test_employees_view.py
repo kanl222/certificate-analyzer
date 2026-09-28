@@ -59,6 +59,62 @@ def test_employee_service_delete(application):
     assert service.get_employee(emp.id) is None
 
 
+def test_create_request_for_selected_uses_service_contract():
+    """Создание заявки из автономной вкладки передаёт данные сотрудника сервису."""
+    from types import SimpleNamespace
+
+    from certificate_analyzer.presentation.gui.views.employees_view import EmployeesView
+
+    employee = Employee(
+        id=42,
+        full_name="Сидоров Сидор Сидорович",
+        department="ИТ",
+    )
+    requests = MagicMock()
+    requests.create_request.return_value = SimpleNamespace(request_number="REQ-42")
+    messages: list[str] = []
+    view = SimpleNamespace(
+        get_selected_employee=lambda: employee,
+        winfo_toplevel=lambda: SimpleNamespace(),
+        app=SimpleNamespace(certificate_requests=requests),
+        on_message=messages.append,
+    )
+
+    EmployeesView.create_request_for_selected(view)
+
+    requests.create_request.assert_called_once_with(
+        employee_id=42,
+        full_name="Сидоров Сидор Сидорович",
+        department="ИТ",
+    )
+    assert messages == ["Заявка REQ-42 для Сидоров Сидор Сидорович создана"]
+
+
+def test_create_request_for_selected_opens_request_dialog():
+    """Главное окно получает сотрудника и открывает форму создания заявки."""
+    from types import SimpleNamespace
+
+    from certificate_analyzer.presentation.gui.views.employees_view import EmployeesView
+
+    employee = Employee(
+        id=42,
+        full_name="Сидоров Сидор Сидорович",
+        department="ИТ",
+    )
+    open_dialog = MagicMock()
+    requests = MagicMock()
+    view = SimpleNamespace(
+        get_selected_employee=lambda: employee,
+        on_create_request=open_dialog,
+        app=SimpleNamespace(certificate_requests=requests),
+    )
+
+    EmployeesView.create_request_for_selected(view)
+
+    open_dialog.assert_called_once_with(employee)
+    requests.create_request.assert_not_called()
+
+
 @pytest.mark.skipif(not os.environ.get("CERTIFICATE_ANALYZER_GUI_TEST"), reason="GUI-тест отключен")
 def test_employees_view_ui(application):
     """Проверяет инициализацию и наполнение таблицы EmployeesView."""

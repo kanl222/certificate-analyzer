@@ -6,7 +6,6 @@ from typing import Any, Callable
 
 from certificate_analyzer.domain.models.employee import Employee
 from certificate_analyzer.infrastructure.mchd.validator import is_valid_inn, is_valid_snils
-from certificate_analyzer.presentation.gui.styles import UI_FONT
 
 EMPLOYEE_COLUMNS = {
     "full_name": ("ФИО сотрудника", 220),
@@ -122,6 +121,7 @@ class EmployeesView(ttk.Frame):
         parent: tk.Widget,
         application: Any,
         on_message: Callable[[str], None] | None = None,
+        on_create_request: Callable[[Employee], None] | None = None,
         **kwargs: Any,
     ) -> None:
         """Инициализирует представление вкладки сотрудников.
@@ -130,11 +130,13 @@ class EmployeesView(ttk.Frame):
             parent: Родительский контейнер Tkinter.
             application: Контейнер сервисов приложения ApplicationContainer.
             on_message: Функция вывода сообщений в статусную строку главного окна.
+            on_create_request: Обработчик открытия формы заявки для сотрудника.
             **kwargs: Дополнительные параметры ttk.Frame.
         """
         super().__init__(parent, **kwargs)
         self.app = application
         self.on_message = on_message or (lambda _: None)
+        self.on_create_request = on_create_request
         self.employees: list[Employee] = []
 
         self._build_ui()
@@ -146,7 +148,7 @@ class EmployeesView(ttk.Frame):
         toolbar.pack(fill="x", pady=(0, 8))
         ttk.Button(
             toolbar,
-            text="+ Добавить сотрудника",
+            text="Добавить сотрудника",
             style="Accent.TButton",
             command=self.show_create_dialog,
         ).pack(side="left", padx=(0, 6))
@@ -159,22 +161,28 @@ class EmployeesView(ttk.Frame):
 
         filters = ttk.Frame(self, style="Panel.TFrame", padding=(8, 6))
         filters.pack(fill="x", pady=(0, 8))
-        ttk.Label(filters, text="Поиск:", style="Panel.TLabel").pack(
-            side="left", padx=(0, 4)
+        filters.columnconfigure(1, weight=1)
+        ttk.Label(filters, text="Поиск:", style="Panel.TLabel").grid(
+            row=0, column=0, sticky="w"
         )
         self.search_var = tk.StringVar()
         self.search_entry = ttk.Entry(filters, textvariable=self.search_var, width=28)
-        self.search_entry.pack(side="left", padx=(0, 4))
+        self.search_entry.grid(
+            row=0,
+            column=1,
+            sticky="ew",
+            padx=(6, 8),
+        )
         self.search_entry.bind("<Return>", lambda _: self.refresh())
         ttk.Button(
             filters, text="Найти", command=self.refresh, style="Toolbar.TButton"
-        ).pack(side="left", padx=(0, 4))
+        ).grid(row=0, column=2, padx=(0, 5))
         ttk.Button(
             filters,
             text="Сбросить",
             command=self._clear_search,
             style="Toolbar.TButton",
-        ).pack(side="left")
+        ).grid(row=0, column=3)
 
         table_frame = ttk.Frame(self)
         table_frame.pack(fill="both", expand=True)
@@ -208,8 +216,11 @@ class EmployeesView(ttk.Frame):
         self._build_context_menu()
 
         bottom_bar = ttk.Frame(self, padding=(0, 6, 0, 0))
-        bottom_bar.pack(fill="x")
-        self.stats_label = ttk.Label(bottom_bar, text="Всего сотрудников: 0", font=(UI_FONT, 9))
+        self.stats_label = ttk.Label(
+            bottom_bar,
+            text="Всего сотрудников: 0",
+            style="Summary.TLabel",
+        )
         self.stats_label.pack(side="left")
 
     def _build_context_menu(self) -> None:
@@ -267,8 +278,9 @@ class EmployeesView(ttk.Frame):
                 ),
             )
 
-        self.stats_label.config(text=f"Всего сотрудников: {len(self.employees)}")
-        self.on_message(f"Сотрудников загружено: {len(self.employees)}")
+        summary = f"Всего сотрудников: {len(self.employees)}"
+        self.stats_label.config(text=summary)
+        self.on_message(summary)
 
     def show_create_dialog(self) -> None:
         """Открывает диалог добавления нового сотрудника."""
@@ -320,14 +332,13 @@ class EmployeesView(ttk.Frame):
             messagebox.showinfo("Информация", "Выберите сотрудника для создания заявки", parent=self)
             return
 
-        # Переключаемся на вкладку заявок или вызываем диалог заявок
-        main_win = self.winfo_toplevel()
-        if hasattr(main_win, "requests_view"):
-            main_win.requests_view.show_create_dialog_for(emp.full_name, emp.department or "")
+        on_create_request = getattr(self, "on_create_request", None)
+        if on_create_request:
+            on_create_request(emp)
         elif hasattr(self.app, "certificate_requests"):
-            # Создаем заявку напрямую
             req = self.app.certificate_requests.create_request(
-                employee_name=emp.full_name,
-                department=emp.department,
+                employee_id=emp.id,
+                full_name=emp.full_name,
+                department=emp.department or "",
             )
             self.on_message(f"Заявка {req.request_number} для {emp.full_name} создана")
