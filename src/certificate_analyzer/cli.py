@@ -33,7 +33,11 @@ def main(argv=None) -> int:
         if args.command == "service":
             from certificate_analyzer.runtime.windows_service import run_as_service
 
-            run_as_service(args.service_args)
+            service_args = []
+            if args.startup:
+                service_args.extend(("--startup", args.startup))
+            service_args.append(args.service_action)
+            run_as_service(service_args)
             return 0
 
         from certificate_analyzer.infrastructure.config.config_loader import (

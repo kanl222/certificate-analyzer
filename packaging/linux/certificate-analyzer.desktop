@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Certificate Analyzer
+Comment=Анализатор сертификатов X.509 и машиночитаемых доверенностей
+Exec=/opt/certificate-analyzer/certificate-analyzer-gui gui
+Icon=security-high
+Terminal=false
+Categories=Office;Security;Utility;
+Keywords=certificate;mchd;x509;сертификат;мчд;

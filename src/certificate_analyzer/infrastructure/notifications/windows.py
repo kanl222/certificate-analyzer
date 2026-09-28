@@ -13,7 +13,15 @@ class WindowsToastNotifier(NotificationBackend):
     def __init__(self) -> None:
         """Инициализирует Windows ToastNotifier."""
         try:
-            from win10toast import ToastNotifier
+            import warnings
+
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    category=UserWarning,
+                    message=".*pkg_resources is deprecated.*",
+                )
+                from win10toast import ToastNotifier
 
             self._toaster = ToastNotifier()
             self._available = True

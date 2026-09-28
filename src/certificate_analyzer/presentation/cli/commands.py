@@ -83,7 +83,15 @@ def build_parser() -> argparse.ArgumentParser:
     worker.add_argument("--once", action="store_true")
 
     service = commands.add_parser("service", help="Служба Windows")
-    service.add_argument("service_args", nargs="*")
+    service.add_argument(
+        "--startup",
+        choices=("manual", "auto", "delayed", "disabled"),
+        help="Режим запуска при установке или обновлении службы",
+    )
+    service.add_argument(
+        "service_action",
+        choices=("install", "update", "remove", "start", "stop", "restart", "debug"),
+    )
 
     return parser
 

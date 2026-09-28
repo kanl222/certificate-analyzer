@@ -18,10 +18,16 @@ dependencies = [
 
 [project.optional-dependencies]
 gui = ["pyperclip>=1.8"]
-windows = ["pywin32>=306; sys_platform == 'win32'", "win10toast>=0.9; sys_platform == 'win32'"]
+windows = [
+    "pywin32>=306; sys_platform == 'win32'",
+    "win10toast>=0.9; sys_platform == 'win32'",
+    # win10toast 0.9 imports pkg_resources, removed in newer setuptools.
+    "setuptools<81; sys_platform == 'win32'",
+]
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.9"]
+packaging = ["pyinstaller>=6,<7"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

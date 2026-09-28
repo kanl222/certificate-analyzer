@@ -1,0 +1,12 @@
+[Unit]
+Description=Certificate Analyzer monitoring
+After=graphical-session.target network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/certificate-analyzer/certificate-analyzer worker
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target

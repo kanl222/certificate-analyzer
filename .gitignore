@@ -5,9 +5,16 @@ build/
 dist/
 wheels/
 *.egg-info
+*.spec.bak
+packaging/windows/output/
+packaging/windows/*.exe
+packaging/windows/*.msi
+packaging/linux/output/
+*.deb
 
 # Virtual environments
 .venv
+.venv-linux
 scratch/*
 *.db
 MEMORY.md

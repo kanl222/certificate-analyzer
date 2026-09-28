@@ -85,9 +85,13 @@ install_system_packages() {
             missing_tools+=("python3-tkinter")
         fi
     fi
+    if ! command -v fc-match >/dev/null 2>&1 || \
+        ! fc-match -f '%{family}\n' "Noto Sans" 2>/dev/null | grep -Fqi "Noto Sans"; then
+        missing_tools+=("Noto Sans")
+    fi
 
     if [ ${#missing_tools[@]} -eq 0 ]; then
-        echo "Все основные утилиты (notify-send, xdg-open, gio/trash-cli, tkinter) уже установлены."
+        echo "Все основные утилиты и шрифт Noto Sans уже установлены."
         return 0
     fi
 
@@ -101,7 +105,8 @@ install_system_packages() {
             python3-tk \
             xdg-utils \
             libglib2.0-bin \
-            fonts-dejavu-core
+            fonts-dejavu-core \
+            fonts-noto-core
     elif command -v dnf >/dev/null 2>&1; then
         echo "Обнаружен пакетный менеджер dnf. Установка пакетов..."
         run_privileged dnf install -y \
@@ -141,6 +146,7 @@ install_system_packages() {
         echo "  - Python Tkinter (пакет python3-tk / python3-tkinter / tk)" >&2
         echo "  - xdg-utils" >&2
         echo "  - glib2 / trash-cli (для работы с корзиной)" >&2
+        echo "  - Noto Sans (пакет fonts-noto-core / noto-fonts)" >&2
         return 1
     fi
 

@@ -20,6 +20,13 @@ if sys.platform == "win32":
         _svc_name_ = SERVICE_NAME
         _svc_display_name_ = SERVICE_DISPLAY_NAME
 
+        # A frozen service must point SCM back to the bundled executable.
+        # Without these attributes pywin32 registers pythonservice.exe, which
+        # is not present on a computer where only the installer was used.
+        if getattr(sys, "frozen", False):
+            _exe_name_ = sys.executable
+            _exe_args_ = "service"
+
         def __init__(self, args):
             super().__init__(args)
             self.worker = MonitoringWorker()
