@@ -48,6 +48,7 @@ class CertificateRequestRepository:
                 inn=model.employee.inn,
                 snils=model.employee.snils,
                 birth_date=model.employee.birth_date,
+                is_management=bool(model.employee.is_management),
             )
 
         status_val = model.status

@@ -26,10 +26,16 @@ class ApiNotificationBackend(NotificationBackend):
         api_key: str | None = None,
         stub_mode: bool = True,
         timeout: float = 5.0,
+        max_response_bytes: int = 65536,
+        history_limit: int = 100,
     ) -> None:
         self.api_url = api_url
         self.api_key = api_key
         self.stub_mode = stub_mode
+        if max_response_bytes <= 0 or history_limit <= 0:
+            raise ValueError("Лимиты ответа и истории должны быть положительными")
+        self.max_response_bytes = max_response_bytes
+        self.history_limit = history_limit
         self.timeout = timeout
         self.history: list[dict[str, Any]] = []
 
@@ -67,7 +73,7 @@ class ApiNotificationBackend(NotificationBackend):
             "url": self.api_url,
             "payload": payload,
         }
-        self.history.append(result)
+        self._remember(result)
         return result
 
     def _send_http(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -83,7 +89,10 @@ class ApiNotificationBackend(NotificationBackend):
         req = urllib.request.Request(self.api_url, data=data, headers=headers, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as response:
-                body = response.read().decode("utf-8")
+                raw = response.read(self.max_response_bytes + 1)
+                if len(raw) > self.max_response_bytes:
+                    raise ValueError("Ответ API превышает допустимый размер")
+                body = raw.decode("utf-8")
                 logger.info("[API Notifier] Уведомление успешно отправлено: %s", payload["notification_id"])
                 result = {
                     "status": "success",
@@ -92,7 +101,7 @@ class ApiNotificationBackend(NotificationBackend):
                     "response": body,
                     "notification_id": payload["notification_id"],
                 }
-                self.history.append(result)
+                self._remember(result)
                 return result
         except urllib.error.URLError as e:
             logger.error("[API Notifier] Ошибка отправки уведомления в API: %s", e)
@@ -102,7 +111,7 @@ class ApiNotificationBackend(NotificationBackend):
                 "error": str(e),
                 "notification_id": payload["notification_id"],
             }
-            self.history.append(result)
+            self._remember(result)
             return result
         except Exception as e:
             logger.exception("[API Notifier] Непредвиденная ошибка отправки: %s", e)
@@ -112,8 +121,12 @@ class ApiNotificationBackend(NotificationBackend):
                 "error": str(e),
                 "notification_id": payload["notification_id"],
             }
-            self.history.append(result)
+            self._remember(result)
             return result
+
+    def _remember(self, result: dict[str, Any]) -> None:
+        self.history.append(result)
+        del self.history[:-self.history_limit]
 
     def clear_history(self) -> None:
         """Очистка истории отправленных уведомлений."""

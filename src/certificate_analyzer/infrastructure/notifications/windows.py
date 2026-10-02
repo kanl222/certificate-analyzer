@@ -32,12 +32,14 @@ class WindowsToastNotifier(NotificationBackend):
             self._toaster = None
             self._available = False
 
-    def send(self, title: str, message: str) -> None:
+    def send(self, title: str, message: str, notification_type: str = "info", **metadata) -> None:
         """Отправляет всплывающее уведомление Windows (Action Center).
 
         Args:
             title: Заголовок уведомления.
             message: Текст сообщения.
+            notification_type: Тип события для совместимости с API уведомлений.
+            metadata: Дополнительные данные; Windows Toast их не отображает.
         """
         if not self._available or not self._toaster:
             logger.info(f"Windows Toast недоступен. Сообщение: [{title}] {message}")

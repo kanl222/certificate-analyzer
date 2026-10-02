@@ -394,6 +394,7 @@ class CertificateService:
                 description=f"Файл «{path_str}» удален (в корзину: {move_to_trash})",
                 details={"path": path_str, "move_to_trash": move_to_trash},
             )
+        self.delete_records([fingerprint])
         return True, path_str
 
     def delete_records(self, fingerprints: list[str]) -> int:

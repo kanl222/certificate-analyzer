@@ -27,26 +27,20 @@ done
 
 echo "==> Удаление Certificate Analyzer для Linux..."
 
-# 1. Остановка и отключение службы systemd
-if command -v systemctl >/dev/null 2>&1; then
-    if systemctl --user is-active --quiet cert-analyzer.service 2>/dev/null; then
-        echo "Остановка службы cert-analyzer.service..."
-        systemctl --user stop cert-analyzer.service || true
-    fi
-    if systemctl --user is-enabled --quiet cert-analyzer.service 2>/dev/null; then
-        echo "Отключение службы cert-analyzer.service..."
-        systemctl --user disable cert-analyzer.service || true
-    fi
-fi
-
-# 2. Удаление файла службы
+# Остановить и удалить текущую службу и совместимый старый вариант.
 service_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-if [ -f "$service_dir/cert-analyzer.service" ]; then
-    rm -f "$service_dir/cert-analyzer.service"
+for unit in certificate-analyzer.service cert-analyzer.service; do
     if command -v systemctl >/dev/null 2>&1; then
-        systemctl --user daemon-reload || true
+        systemctl --user stop "$unit" || true
+        systemctl --user disable "$unit" || true
     fi
-    echo "Файл службы $service_dir/cert-analyzer.service удален."
+    # Удаляем только файл/символическую ссылку конкретной службы, без рекурсии.
+    if [ -f "$service_dir/$unit" ] || [ -L "$service_dir/$unit" ]; then
+        rm -f -- "$service_dir/$unit"
+    fi
+done
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user daemon-reload || true
 fi
 
 # 3. Удаление ярлыка приложения (.desktop)

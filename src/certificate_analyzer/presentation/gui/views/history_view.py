@@ -1,5 +1,6 @@
 import tkinter as tk
-from datetime import UTC, datetime
+from datetime import timezone
+UTC = timezone.utc
 from tkinter import messagebox, ttk
 
 from certificate_analyzer.infrastructure.persistence.notification_history import (

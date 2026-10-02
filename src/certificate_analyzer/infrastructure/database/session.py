@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from urllib.parse import quote
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -22,23 +23,30 @@ def get_database_path(settings=None):
 
 
 class Database:
-    def __init__(self, path):
+    def __init__(self, path, *, read_only=False):
         self.path = Path(path).expanduser().resolve()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.read_only = read_only
+        if not read_only:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
         self.engine = create_engine(
-            "sqlite:///" + self.path.as_posix(), connect_args={"timeout": 30}
+            ("sqlite:///file:" + quote(self.path.as_posix(), safe="/:") + "?mode=ro&uri=true")
+            if read_only else "sqlite:///" + self.path.as_posix(),
+            connect_args={"timeout": 30},
         )
 
         @event.listens_for(self.engine, "connect")
         def configure(connection, _):
             connection.execute("PRAGMA foreign_keys=ON")
             connection.execute("PRAGMA busy_timeout=30000")
+            if read_only:
+                connection.execute("PRAGMA query_only=ON")
 
         try:
-            migrate(self.engine, self.path)
-            Base.metadata.create_all(self.engine)
-            with self.engine.connect() as connection:
-                connection.exec_driver_sql("PRAGMA journal_mode=WAL")
+            if not read_only:
+                migrate(self.engine, self.path)
+                Base.metadata.create_all(self.engine)
+                with self.engine.connect() as connection:
+                    connection.exec_driver_sql("PRAGMA journal_mode=WAL")
             self.sessions = sessionmaker(self.engine, expire_on_commit=False)
         except Exception:
             self.engine.dispose()

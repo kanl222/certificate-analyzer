@@ -1,4 +1,5 @@
-from datetime import UTC, datetime, timedelta
+from datetime import timezone, datetime, timedelta
+UTC = timezone.utc
 
 from certificate_analyzer.domain.enums.certificate_status import CertificateStatus
 

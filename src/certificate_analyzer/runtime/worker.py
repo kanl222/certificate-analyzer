@@ -2,6 +2,7 @@
 
 import logging
 import threading
+import time
 from typing import Any
 
 from certificate_analyzer.application.dto.certificate_dto import certificate_to_dict
@@ -28,7 +29,12 @@ class MonitoringWorker:
             notifier: Менеджер отправки уведомлений (опционально).
             application: Готовый ApplicationContainer (опционально).
         """
-        self.app = application or create_application(settings=settings)
+        if application is None:
+            from certificate_analyzer.infrastructure.config.config_loader import load_settings
+            from certificate_analyzer.runtime.user_daemon import ensure_writer
+            settings = settings or load_settings()
+            ensure_writer(settings)
+        self.app = application or create_application(settings=settings, read_only=True)
         self._owns_application = application is None
         self.settings = self.app.settings
         self.notifier = notifier or self.app.notifications or PushNotificationManager()
@@ -60,8 +66,12 @@ class MonitoringWorker:
         Returns:
             list[dict[str, Any]]: Список сериализованных словарей проверенных сертификатов.
         """
+        started = time.monotonic()
+        logger.info("Начало проверки сертификатов")
         result = self._service.run_cycle()
         self.errors = result.errors
+        logger.info("Проверка завершена: записей=%s, ошибок=%s, длительность=%.2f с",
+                    len(result.records), len(result.errors), time.monotonic() - started)
         return [certificate_to_dict(cert) for cert in result.records]
 
     def stop(self) -> None:

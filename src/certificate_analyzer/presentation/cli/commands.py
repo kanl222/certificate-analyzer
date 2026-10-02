@@ -80,18 +80,11 @@ def build_parser() -> argparse.ArgumentParser:
     merge.add_argument("--output", type=Path, required=True)
 
     worker = commands.add_parser("worker", help="Мониторинг записей SQLite")
-    worker.add_argument("--once", action="store_true")
-
-    service = commands.add_parser("service", help="Служба Windows")
-    service.add_argument(
-        "--startup",
-        choices=("manual", "auto", "delayed", "disabled"),
-        help="Режим запуска при установке или обновлении службы",
-    )
-    service.add_argument(
-        "service_action",
-        choices=("install", "update", "remove", "start", "stop", "restart", "debug"),
-    )
+    worker_mode = worker.add_mutually_exclusive_group()
+    worker_mode.add_argument("--once", action="store_true")
+    worker_mode.add_argument("--stop", action="store_true", help="Остановить пользовательский демон")
+    autostart = commands.add_parser("autostart", help="Автозапуск демона при входе пользователя Windows/Linux")
+    autostart.add_argument("action", choices=("enable", "disable"))
 
     return parser
 

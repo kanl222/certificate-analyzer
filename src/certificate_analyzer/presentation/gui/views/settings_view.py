@@ -3,7 +3,7 @@
 import tkinter as tk
 from dataclasses import replace
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable
 
 from certificate_analyzer.infrastructure.config.config_loader import save_settings
@@ -32,8 +32,11 @@ class SettingsDialog(tk.Toplevel):
         self.config_path = config_path
         self.on_saved = on_saved
         self.fields: dict[str, tk.StringVar] = {}
+        self.folder_fields: dict[str, tk.StringVar] = {}
 
-        self.title("Настройки хранилища")
+        self.title("Настройки")
+        self.minsize(680, 360)
+        self.transient(parent)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -45,39 +48,67 @@ class SettingsDialog(tk.Toplevel):
         frame = ttk.Frame(self, padding=16)
         frame.pack(fill="both", expand=True)
 
-        values = {
-            "storage_folder": (
-                "Папка сертификатов",
-                str(self.app.certificates.storage.folder),
-            ),
-            "database_path": ("Файл SQLite", str(self.app.database.path)),
-            "export_folder": ("Папка отчётов", self.app.settings.export_folder),
-            "warning_days": (
-                "Предупреждать за дней",
-                str(self.app.settings.warning_days),
-            ),
-            "check_interval": (
-                "Интервал мониторинга, секунд",
-                str(self.app.settings.check_interval),
-            ),
+        self.notebook = ttk.Notebook(frame)
+        self.notebook.pack(fill="both", expand=True)
+        groups = {
+            "Хранилище": [
+                ("storage_folder", "Папка сертификатов", str(self.app.certificates.storage.folder), "directory"),
+                ("database_path", "Файл базы данных", str(self.app.database.path), "database"),
+            ],
+            "Импорт": [
+                ("mchd_folder", "Папка МЧД", self.app.settings.mchd_folder, "directory"),
+                ("phonebook_path", "Телефонный справочник", self.app.settings.phonebook_path or "", "phonebook"),
+            ],
+            "Мониторинг": [
+                ("warning_days", "Предупреждать за дней", str(self.app.settings.warning_days), None),
+                ("check_interval", "Интервал проверки, секунд", str(self.app.settings.check_interval), None),
+            ],
+            "Отчёты": [
+                ("export_folder", "Папка отчётов", self.app.settings.export_folder, "directory"),
+            ],
         }
+        for title, values in groups.items():
+            tab = ttk.Frame(self.notebook, padding=12)
+            tab.columnconfigure(1, weight=1)
+            self.notebook.add(tab, text=title)
+            for row, (key, label, value, browse_kind) in enumerate(values):
+                variable = tk.StringVar(value=value)
+                self.fields[key] = variable
+                self._add_field(tab, row, label, variable, browse_kind)
+            if title == "Импорт":
+                for row, (name, folder) in enumerate(self.app.settings.folders.items(), start=len(values)):
+                    variable = tk.StringVar(value=folder)
+                    self.folder_fields[name] = variable
+                    self._add_field(tab, row, f"Сертификаты: {name}", variable, "directory")
+            if title == "Мониторинг":
+                ttk.Label(tab, text="Управление фоновым процессом и автозапуском доступно в меню «Служба».",
+                          wraplength=600).grid(row=len(values), column=0, columnspan=3, sticky="w", pady=12)
 
-        for index, (key, (label, value)) in enumerate(values.items()):
-            ttk.Label(frame, text=label).grid(row=index, column=0, sticky="w", pady=5)
-            self.fields[key] = tk.StringVar(value=value)
-            ttk.Entry(frame, textvariable=self.fields[key], width=55).grid(
-                row=index, column=1, padx=10
-            )
+        ttk.Label(frame,
+                  text="После сохранения перезапустите приложение и фоновый процесс. Существующие файлы автоматически не перемещаются.",
+                  wraplength=640).pack(fill="x", pady=12)
+        buttons = ttk.Frame(frame)
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="Сохранить", command=self.save).pack(side="right")
+        ttk.Button(buttons, text="Отмена", command=self.destroy).pack(side="right", padx=8)
 
-        ttk.Label(
-            frame,
-            text="Настройки вступят в силу после перезапуска. Существующие файлы автоматически не перемещаются.",
-            wraplength=600,
-        ).grid(row=len(values), column=0, columnspan=2, pady=12)
+    def _add_field(self, tab, row, label, variable, browse_kind):
+        ttk.Label(tab, text=label).grid(row=row, column=0, sticky="w", pady=6)
+        ttk.Entry(tab, textvariable=variable, width=48).grid(row=row, column=1, sticky="ew", padx=10)
+        if browse_kind:
+            ttk.Button(tab, text="Обзор…", command=lambda: self._browse(variable, browse_kind)).grid(row=row, column=2)
 
-        ttk.Button(frame, text="Сохранить", command=self.save).grid(
-            row=len(values) + 1, column=1, sticky="e"
-        )
+    def _browse(self, variable, kind):
+        if kind == "directory":
+            path = filedialog.askdirectory(parent=self, title="Выберите папку")
+        elif kind == "database":
+            path = filedialog.asksaveasfilename(parent=self, title="Файл базы данных",
+                defaultextension=".db", filetypes=[("SQLite", "*.db *.sqlite"), ("Все файлы", "*.*")])
+        else:
+            path = filedialog.askopenfilename(parent=self, title="Телефонный справочник",
+                filetypes=[("Справочник", "*.txt *.docx"), ("Все файлы", "*.*")])
+        if path:
+            variable.set(path)
 
     def save(self) -> None:
         """Сохраняет измененные настройки в файл конфигурации.
@@ -94,14 +125,16 @@ class SettingsDialog(tk.Toplevel):
                 **{
                     k: int(v.get())
                     if k in ("warning_days", "check_interval")
+                    else (v.get().strip() or None) if k == "phonebook_path"
                     else v.get()
                     for k, v in self.fields.items()
                 },
+                folders={name: value.get() for name, value in self.folder_fields.items()},
             )
             save_settings(settings, self.config_path)
             self.destroy()
             if self.on_saved:
-                self.on_saved("Настройки сохранены. Перезапустите приложение.")
+                self.on_saved("Настройки сохранены. Остановите фоновый процесс через меню «Служба» и перезапустите приложение.")
         except (ValueError, OSError) as exc:
             messagebox.showerror("Настройки", str(exc), parent=self)
 

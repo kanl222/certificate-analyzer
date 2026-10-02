@@ -8,10 +8,6 @@ entry_point = project_root / "src" / "certificate_analyzer" / "__main__.py"
 
 hidden_imports = collect_submodules("certificate_analyzer") + [
     "pkg_resources",
-    "servicemanager",
-    "win32event",
-    "win32service",
-    "win32serviceutil",
     "win32timezone",
 ]
 

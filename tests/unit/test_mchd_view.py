@@ -1,6 +1,7 @@
 """Тесты для представления вкладки МЧД MchdView и сопутствующих диалоговых окон."""
 
 import os
+from types import SimpleNamespace
 from typing import Any
 import pytest
 
@@ -8,6 +9,7 @@ from certificate_analyzer.presentation.gui.views.mchd_view import (
     MchdPersonalDataWindow,
     MchdView,
 )
+from certificate_analyzer.presentation.gui.styles import TEXT_COLOR, WARNING_TEXT
 
 
 def _sample_mchd_records() -> list[dict[str, Any]]:
@@ -71,6 +73,47 @@ def test_mchd_view_status_tag():
     assert MchdView._get_status_tag("Отозвана") == "expired"
     assert MchdView._get_status_tag("Истекает через 5 дней") == "warning"
     assert MchdView._get_status_tag("Действует") == "normal"
+
+
+def test_mchd_warning_text_uses_readable_dark_color():
+    """Текст предупреждения на жёлтом фоне должен оставаться контрастным."""
+    assert WARNING_TEXT == TEXT_COLOR
+
+
+def test_mchd_double_click_ignores_empty_table_space():
+    """Двойной щелчок вне строки не должен пытаться открыть карточку."""
+    opened: list[bool] = []
+    tree = SimpleNamespace(identify_row=lambda _y: "")
+    view = SimpleNamespace(
+        tree=tree,
+        view_personal_data=lambda: opened.append(True),
+    )
+
+    MchdView.on_double_click(view, SimpleNamespace(y=500))
+
+    assert opened == []
+
+
+def test_mchd_double_click_opens_row_under_pointer():
+    """Двойной щелчок по строке открывает именно эту МЧД."""
+    opened: list[bool] = []
+    selected: list[str] = []
+    focused: list[str] = []
+    tree = SimpleNamespace(
+        identify_row=lambda _y: "row-2",
+        selection_set=selected.append,
+        focus=focused.append,
+    )
+    view = SimpleNamespace(
+        tree=tree,
+        view_personal_data=lambda: opened.append(True),
+    )
+
+    MchdView.on_double_click(view, SimpleNamespace(y=120))
+
+    assert selected == ["row-2"]
+    assert focused == ["row-2"]
+    assert opened == [True]
 
 
 @pytest.mark.skipif(

@@ -11,12 +11,14 @@ logger = logging.getLogger(__name__)
 class LinuxDesktopNotifier(NotificationBackend):
     """Реализация отправки уведомлений в Linux (через notify-send)."""
 
-    def send(self, title: str, message: str) -> None:
+    def send(self, title: str, message: str, notification_type: str = "info", **metadata) -> None:
         """Отправляет всплывающее уведомление с помощью системной утилиты notify-send.
 
         Args:
             title: Заголовок уведомления.
             message: Текст сообщения.
+            notification_type: Тип события для совместимости с API уведомлений.
+            metadata: Дополнительные данные; настольное уведомление их не отображает.
         """
         try:
             subprocess.run(["notify-send", title, message], check=False)

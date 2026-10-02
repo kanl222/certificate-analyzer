@@ -9,6 +9,7 @@ from certificate_analyzer.domain.enums.mchd_status import MchdStatus
 NOT_FOUND = "Не найдено"
 
 STATUS_VIEW: dict[MchdStatus, tuple[str, str]] = {
+    MchdStatus.INVALID: ("Срок не наступил / неверные даты", "#e57373"),
     MchdStatus.EXPIRED: ("Просрочен", "#e57373"),
     MchdStatus.ACTIVE: ("Действует", "#9b59b6"),
     MchdStatus.REVOKED: ("Отозвана", "#e57373"),
@@ -109,6 +110,9 @@ def mchd_to_dict(model) -> MchdDTO:
         key: _display(value)
         for key, value in raw_details.items()
     }
+
+    details["verification_status"] = "NOT_CHECKED"
+    details["Проверка подлинности"] = "Не проверена (подпись, доверие, отзыв)"
 
     return MchdDTO(
         file_name=str(

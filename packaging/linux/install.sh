@@ -182,7 +182,10 @@ install_systemd_service() {
     local service_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
     mkdir -p "$service_dir"
 
-    cat > "$service_dir/cert-analyzer.service" <<UNIT
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user unmask certificate-analyzer.service
+    fi
+    cat > "$service_dir/certificate-analyzer.service" <<UNIT
 [Unit]
 Description=Certificate and MCHD analyzer
 After=network.target
@@ -198,11 +201,14 @@ WantedBy=default.target
 UNIT
 
     if command -v systemctl >/dev/null 2>&1; then
+        if [ -f "$service_dir/cert-analyzer.service" ]; then
+            systemctl --user disable --now cert-analyzer.service
+        fi
         systemctl --user daemon-reload
-        systemctl --user enable --now cert-analyzer.service
-        echo "Служба cert-analyzer.service успешно включена и запущена."
+        systemctl --user enable --now certificate-analyzer.service
+        echo "Служба certificate-analyzer.service успешно включена и запущена."
     else
-        echo "Внимание: systemctl не найден. Служба сохранена в $service_dir/cert-analyzer.service"
+        echo "Внимание: systemctl не найден. Служба сохранена в $service_dir/certificate-analyzer.service"
     fi
 }
 

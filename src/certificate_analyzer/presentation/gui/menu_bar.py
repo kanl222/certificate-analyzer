@@ -1,6 +1,7 @@
 """Главное меню приложения и обработчики горячих клавиш."""
 
 import tkinter as tk
+import sys
 from typing import Any
 
 
@@ -32,6 +33,7 @@ class AppMenuBar:
         self._build_edit_menu()
         self._build_view_menu()
         self._build_tools_menu()
+        self._build_service_menu()
         self._build_help_menu()
 
         self.root.config(menu=self.menubar)
@@ -217,6 +219,32 @@ class AppMenuBar:
             command=self.handler.show_normative_docs,
         )
         self.menubar.add_cascade(label="Инструменты", menu=tools_menu)
+
+    def _build_service_menu(self) -> None:
+        service_menu = tk.Menu(self.menubar, tearoff=0)
+        for label, action in (
+            ("Запустить", "start"),
+            ("Остановить", "stop"),
+            ("Перезапустить", "restart"),
+            ("Проверить состояние", "status"),
+        ):
+            service_menu.add_command(
+                label=label,
+                command=lambda action=action: self.handler.manage_background_process(action),
+            )
+        service_menu.add_separator()
+        service_menu.add_command(label="Журнал службы…", command=self.handler.show_service_log)
+        service_menu.add_separator()
+        for label, action in (
+            ("Включить автозапуск при входе", "enable_autostart"),
+            ("Отключить автозапуск при входе", "disable_autostart"),
+        ):
+            service_menu.add_command(
+                label=label,
+                state="normal" if sys.platform == "win32" or sys.platform.startswith("linux") else "disabled",
+                command=lambda action=action: self.handler.manage_background_process(action),
+            )
+        self.menubar.add_cascade(label="Служба", menu=service_menu)
 
     def _build_help_menu(self) -> None:
         """Создает выпадающее меню «Справка».

@@ -35,7 +35,7 @@ def mchd_to_dto(doc: MchdDocument) -> MchdDTO:
         issuer_org_inn=doc.principal_inn,
         status=status_label,
         color=color,
-        details=dict(doc.details),
+        details={**doc.details, "verification_status": "NOT_CHECKED", "Проверка подлинности": "Не проверена (подпись, доверие, отзыв)"},
     )
 
 

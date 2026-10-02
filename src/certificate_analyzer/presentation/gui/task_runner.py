@@ -1,6 +1,7 @@
 """Управление фоновыми операциями и асинхронными задачами графического интерфейса."""
 
 from concurrent.futures import Future, ThreadPoolExecutor
+import logging
 from tkinter import messagebox, ttk
 import tkinter as tk
 from typing import Any, Callable
@@ -105,6 +106,7 @@ class TaskRunner:
                 if post_refresh:
                     post_refresh()
         except Exception as exc:
+            logging.getLogger(__name__).exception("Ошибка фоновой операции GUI")
             if not self.closing:
                 self.on_message("Операция не завершена")
                 messagebox.showerror("Ошибка", str(exc), parent=self.root)

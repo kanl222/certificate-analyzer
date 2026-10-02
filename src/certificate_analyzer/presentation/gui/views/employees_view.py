@@ -6,14 +6,16 @@ from typing import Any, Callable
 
 from certificate_analyzer.domain.models.employee import Employee
 from certificate_analyzer.infrastructure.mchd.validator import is_valid_inn, is_valid_snils
+from certificate_analyzer.presentation.gui.widgets.table_state import EmptyStateLabel
 
 EMPLOYEE_COLUMNS = {
     "full_name": ("ФИО сотрудника", 220),
-    "position": ("Должность", 160),
-    "department": ("Подразделение", 160),
-    "office": ("Кабинет", 80),
-    "phones": ("Телефоны", 140),
-    "email": ("Email", 140),
+    "position": ("Должность", 150),
+    "department": ("Подразделение", 150),
+    "is_management": ("Руководство", 95),
+    "office": ("Кабинет", 75),
+    "phones": ("Телефоны", 130),
+    "email": ("Email", 130),
     "inn": ("ИНН", 110),
     "snils": ("СНИЛС", 110),
 }
@@ -39,7 +41,7 @@ class EmployeeDialog(tk.Toplevel):
         self.employee = employee
         self.on_save = on_save
         self.title("Редактировать сотрудника" if employee else "Новый сотрудник")
-        self.geometry("480x380")
+        self.geometry("480x410")
         self.resizable(False, False)
         self.transient(parent.winfo_toplevel())
         self.grab_set()
@@ -70,8 +72,17 @@ class EmployeeDialog(tk.Toplevel):
             self.entries[field_name] = var
             ttk.Entry(frame, textvariable=var, width=34).grid(row=row, column=1, pady=3, padx=(8, 0))
 
+        self.is_management_var = tk.BooleanVar(
+            value=bool(self.employee.is_management) if self.employee else False
+        )
+        ttk.Checkbutton(
+            frame,
+            text="Руководство (руководящий состав)",
+            variable=self.is_management_var,
+        ).grid(row=len(fields), column=1, sticky="w", pady=(6, 3), padx=(8, 0))
+
         btn_box = ttk.Frame(frame)
-        btn_box.grid(row=len(fields), column=0, columnspan=2, pady=(16, 0), sticky="e")
+        btn_box.grid(row=len(fields) + 1, column=0, columnspan=2, pady=(16, 0), sticky="e")
         ttk.Button(btn_box, text="Отмена", command=self.destroy).pack(side="right", padx=(6, 0))
         ttk.Button(btn_box, text="Сохранить", style="Accent.TButton", command=self._save).pack(side="right")
 
@@ -101,6 +112,7 @@ class EmployeeDialog(tk.Toplevel):
             full_name=full_name,
             position=self.entries["position"].get().strip() or None,
             department=self.entries["department"].get().strip() or None,
+            is_management=bool(self.is_management_var.get()),
             office=self.entries["office"].get().strip() or None,
             phones=phones,
             email=self.entries["email"].get().strip() or None,
@@ -209,8 +221,12 @@ class EmployeesView(ttk.Frame):
 
         table_frame.columnconfigure(0, weight=1)
         table_frame.rowconfigure(0, weight=1)
+        self.empty_label = EmptyStateLabel(
+            table_frame,
+            "Сотрудников пока нет\nДобавьте первого сотрудника",
+        )
 
-        self.tree.bind("<Double-1>", lambda _: self.edit_selected())
+        self.tree.bind("<Double-1>", self.on_double_click)
         self.tree.bind("<Button-3>", self._show_context_menu)
 
         self._build_context_menu()
@@ -238,6 +254,15 @@ class EmployeesView(ttk.Frame):
             self.tree.selection_set(item)
             self.context_menu.post(event.x_root, event.y_root)
 
+    def on_double_click(self, event: tk.Event) -> None:
+        """Открывает сотрудника только для строки под курсором."""
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+        self.tree.selection_set(item)
+        self.tree.focus(item)
+        self.edit_selected()
+
     def _clear_search(self) -> None:
         """Сбрасывает поисковую строку и перезагружает список."""
         self.search_var.set("")
@@ -262,6 +287,7 @@ class EmployeesView(ttk.Frame):
         self.tree.delete(*self.tree.get_children())
         for emp in self.employees:
             phones_str = ", ".join(emp.phones) if emp.phones else "—"
+            management_str = "Да" if emp.is_management else "Нет"
             self.tree.insert(
                 "",
                 "end",
@@ -270,12 +296,24 @@ class EmployeesView(ttk.Frame):
                     emp.full_name,
                     emp.position or "—",
                     emp.department or "—",
+                    management_str,
                     emp.office or "—",
                     phones_str,
                     emp.email or "—",
                     emp.inn or "—",
                     emp.snils or "—",
                 ),
+            )
+
+        if self.employees:
+            self.empty_label.hide()
+        elif search_query:
+            self.empty_label.show(
+                "Сотрудники не найдены\nИзмените или сбросьте поисковый запрос"
+            )
+        else:
+            self.empty_label.show(
+                "Сотрудников пока нет\nДобавьте первого сотрудника"
             )
 
         summary = f"Всего сотрудников: {len(self.employees)}"

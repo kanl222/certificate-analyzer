@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from certificate_analyzer.domain.enums.mchd_status import MchdStatus
 from certificate_analyzer.domain.models.mchd import MchdDocument
-from certificate_analyzer.infrastructure.database.migrations import migrate
+from certificate_analyzer.infrastructure.database.migrations import SCHEMA_VERSION, migrate
 from certificate_analyzer.infrastructure.database.models import Base
 from certificate_analyzer.infrastructure.database.models.mchds import (
     MchdAuthorityModel,
@@ -191,8 +191,8 @@ def test_mchd_repository_delete_and_cascade(session_factory, sample_mchd):
         assert auth_count == 0
 
 
-def test_mchd_schema_migration_v4(tmp_path):
-    """Проверяет миграцию со старой денормализованной структуры на SCHEMA_VERSION 4."""
+def test_mchd_schema_migration_from_v3(tmp_path):
+    """Проверяет миграцию старой структуры до актуальной версии схемы."""
     db_file = tmp_path / "legacy.sqlite"
     # Создаем базу данных с версией 3 и старой таблицей mchds
     with sqlite3.connect(db_file) as conn:
@@ -228,7 +228,7 @@ def test_mchd_schema_migration_v4(tmp_path):
     # Проверяем результат миграции
     with engine.connect() as conn:
         version = conn.exec_driver_sql("PRAGMA user_version").scalar()
-        assert version == 4
+        assert version == SCHEMA_VERSION
 
         # Проверяем создание таблицы mchd_authorities и перенос данных
         rows = conn.exec_driver_sql(

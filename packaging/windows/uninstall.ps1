@@ -11,7 +11,7 @@ if ($Help) {
 Использование: .\uninstall.ps1 [ПАРАМЕТРЫ]
 
 Удаляет Certificate Analyzer для Windows:
-  - Останавливает и удаляет службу Windows
+  - Останавливает и удаляет пользовательский демон
   - Удаляет ярлыки с рабочего стола и из меню 'Пуск'
   - Опционально очищает данные и конфигурацию
 
@@ -24,13 +24,13 @@ if ($Help) {
 
 Write-Host "==> Начало удаления Certificate Analyzer для Windows..."
 
-# 1. Удаление службы Windows
+# 1. Удаление пользовательского демона
 $UninstallServiceScript = Join-Path $PSScriptRoot "uninstall-service.ps1"
 if (Test-Path $UninstallServiceScript) {
     try {
         & $UninstallServiceScript
     } catch {
-        Write-Warning "Ошибка при удалении службы: $_"
+        Write-Warning "Ошибка при удалении демона: $_"
     }
 }
 

@@ -15,6 +15,10 @@ def test_request_table_omits_redundant_signature_column() -> None:
     assert "needs_signature" not in REQUEST_COLUMNS
 
 
+@pytest.mark.skipif(
+    not os.environ.get("CERTIFICATE_ANALYZER_GUI_TEST"),
+    reason="GUI-тест отключен без флага окружения",
+)
 def test_employee_picker_dialog_filter(monkeypatch):
     """Проверяет фильтрацию сотрудников в таблице диалога EmployeePickerDialog."""
     import tkinter as tk

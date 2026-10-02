@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock
+import pytest
 
 from certificate_analyzer.application.services.notification_service import (
     PushNotificationManager,
@@ -11,6 +12,35 @@ from certificate_analyzer.infrastructure.notifications.api_notifier import (
 from certificate_analyzer.infrastructure.notifications.composite import (
     CompositeNotificationBackend,
 )
+
+
+@pytest.mark.parametrize("backend_kind", ["windows", "linux", "logging"])
+def test_desktop_backend_accepts_manager_metadata(backend_kind, monkeypatch, caplog):
+    from certificate_analyzer.infrastructure.notifications.windows import WindowsToastNotifier
+    from certificate_analyzer.infrastructure.notifications.linux import LinuxDesktopNotifier
+    from certificate_analyzer.infrastructure.notifications.fallback import LoggingNotificationBackend
+    import logging
+    caplog.set_level(logging.INFO)
+    delivered = MagicMock()
+    if backend_kind == "windows":
+        desktop = WindowsToastNotifier.__new__(WindowsToastNotifier)
+        desktop._available = True
+        desktop._toaster = MagicMock()
+        desktop._toaster.show_toast = delivered
+    elif backend_kind == "linux":
+        desktop = LinuxDesktopNotifier()
+        monkeypatch.setattr("certificate_analyzer.infrastructure.notifications.linux.subprocess.run", delivered)
+    else:
+        desktop = LoggingNotificationBackend()
+    api = ApiNotificationBackend(stub_mode=True)
+    manager = PushNotificationManager(backend=CompositeNotificationBackend([desktop, api]))
+    assert manager.check_and_notify_expired(2, 1, 10)
+    assert "unexpected keyword argument" not in caplog.text
+    if backend_kind != "logging":
+        delivered.assert_called_once()
+    else:
+        assert "Просрочено: 2" in caplog.text
+    assert api.history[0]["payload"]["metadata"]["expired_count"] == 2
 
 
 def test_notification_domain_model():

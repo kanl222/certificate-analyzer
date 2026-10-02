@@ -4,6 +4,8 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Any, Callable
 
+from certificate_analyzer.application.dto.certificate_dto import certificate_to_dict
+from certificate_analyzer.application.dto.certificate_query import CertificateQuery
 from certificate_analyzer.domain.enums.certificate_request_status import (
     CertificateRequestStatus,
 )
@@ -11,6 +13,7 @@ from certificate_analyzer.domain.models.certificate_request import CertificateRe
 from certificate_analyzer.presentation.gui.styles import (
     UI_FONT,
 )
+from certificate_analyzer.presentation.gui.widgets.table_state import EmptyStateLabel
 
 REQUEST_COLUMNS = {
     "request_number": ("Номер заявки", 130),
@@ -34,6 +37,40 @@ REQUEST_STATUS_CHOICES = {
     "Отклонена": CertificateRequestStatus.REJECTED,
     "Аннулирована": CertificateRequestStatus.CANCELLED,
 }
+
+
+def _add_entry_context_menu(widget: tk.Widget) -> None:
+    """Добавляет контекстное меню (Копировать/Вставить/Вырезать) и поддержку горячих клавиш с русской раскладкой."""
+    menu = tk.Menu(widget, tearoff=0)
+    menu.add_command(label="Копировать", command=lambda: widget.event_generate("<<Copy>>"))
+    menu.add_command(label="Вставить", command=lambda: widget.event_generate("<<Paste>>"))
+    menu.add_command(label="Вырезать", command=lambda: widget.event_generate("<<Cut>>"))
+
+    def show_menu(e: tk.Event) -> None:
+        menu.tk_popup(e.x_root, e.y_root)
+
+    widget.bind("<Button-3>", show_menu)
+
+    def fix_cyrillic(e: tk.Event):
+        if getattr(e, "state", 0) & 4 and hasattr(e, "keysym"):
+            sym = str(e.keysym).lower()
+            if sym in ("cyrillic_em", "v", "м", "cyrillic_m"):
+                widget.event_generate("<<Paste>>")
+                return "break"
+            elif sym in ("cyrillic_es", "c", "с", "cyrillic_s"):
+                widget.event_generate("<<Copy>>")
+                return "break"
+            elif sym in ("cyrillic_che", "x", "ч", "cyrillic_ch"):
+                widget.event_generate("<<Cut>>")
+                return "break"
+            elif sym in ("cyrillic_ef", "a", "ф", "cyrillic_f"):
+                if hasattr(widget, "select_range"):
+                    widget.select_range(0, "end")
+                if hasattr(widget, "icursor"):
+                    widget.icursor("end")
+                return "break"
+
+    widget.bind("<Key>", fix_cyrillic, add="+")
 
 
 class EmployeePickerDialog(tk.Toplevel):
@@ -71,6 +108,7 @@ class EmployeePickerDialog(tk.Toplevel):
         search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=35)
         search_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
         search_entry.focus_set()
+        _add_entry_context_menu(search_entry)
 
         ttk.Button(search_frame, text="Очистить", command=lambda: self.search_var.set("")).pack(side="left")
 
@@ -216,6 +254,13 @@ class RequestsView(ttk.Frame):
 
         ttk.Button(
             toolbar,
+            text="Удалить",
+            command=self.delete_selected,
+            style="Toolbar.TButton",
+        ).pack(side="right", padx=(3, 0))
+
+        ttk.Button(
+            toolbar,
             text="Отметить обработанной",
             command=self.mark_processed,
             style="Toolbar.TButton",
@@ -231,9 +276,9 @@ class RequestsView(ttk.Frame):
         )
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self.refresh())
-        ttk.Entry(filters, textvariable=self.search_var, width=25).grid(
-            row=0, column=1, sticky="ew", padx=(6, 12)
-        )
+        search_filter_entry = ttk.Entry(filters, textvariable=self.search_var, width=25)
+        search_filter_entry.grid(row=0, column=1, sticky="ew", padx=(6, 12))
+        _add_entry_context_menu(search_filter_entry)
 
         ttk.Label(filters, text="Статус:", style="Panel.TLabel").grid(
             row=0, column=2, padx=(0, 4)
@@ -285,6 +330,10 @@ class RequestsView(ttk.Frame):
             xscrollcommand=scroll_x.set,
         )
         self.tree.pack(fill="both", expand=True)
+        self.empty_label = EmptyStateLabel(
+            table_frame,
+            "Заявок пока нет\nСоздайте первую заявку на сертификат",
+        )
 
         # Подсветка статусов
         self.tree.tag_configure("in_progress", foreground="#0d6efd")
@@ -293,7 +342,8 @@ class RequestsView(ttk.Frame):
         self.tree.tag_configure("rejected", foreground="#dc3545")
         self.tree.tag_configure("received", foreground="#0f5132")
         self.tree.bind("<Button-3>", self._show_context_menu)
-        self.tree.bind("<Double-1>", lambda _: self.show_status_dialog())
+        self.tree.bind("<Double-1>", self.on_double_click)
+        self.tree.bind("<Delete>", lambda _: self.delete_selected())
 
         self.context_menu = tk.Menu(self, tearoff=0)
         self.context_menu.add_command(
@@ -309,6 +359,10 @@ class RequestsView(ttk.Frame):
             label="Отметить обработанной",
             command=self.mark_processed,
         )
+        self.context_menu.add_command(
+            label="Удалить заявку",
+            command=self.delete_selected,
+        )
 
     def _show_context_menu(self, event: tk.Event) -> None:
         """Выбирает заявку под курсором и показывает доступные действия."""
@@ -318,6 +372,15 @@ class RequestsView(ttk.Frame):
         self.tree.selection_set(item)
         self.tree.focus(item)
         self.context_menu.post(event.x_root, event.y_root)
+
+    def on_double_click(self, event: tk.Event) -> None:
+        """Открывает смену статуса только для строки под курсором."""
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+        self.tree.selection_set(item)
+        self.tree.focus(item)
+        self.show_status_dialog()
 
     def clear_filters(self) -> None:
         """Сбрасывает установленные фильтры поиска и статуса."""
@@ -377,6 +440,17 @@ class RequestsView(ttk.Frame):
                     req.comment,
                 ),
                 tags=(tag,) if tag else (),
+            )
+
+        if self.requests:
+            self.empty_label.hide()
+        elif search_query or status_enum is not None:
+            self.empty_label.show(
+                "По заданным условиям ничего не найдено\nИзмените или сбросьте фильтры"
+            )
+        else:
+            self.empty_label.show(
+                "Заявок пока нет\nСоздайте первую заявку на сертификат"
             )
 
         summary = (
@@ -466,6 +540,7 @@ class RequestsView(ttk.Frame):
             width=28,
         )
         emp_combo.pack(side="left", fill="x", expand=True)
+        _add_entry_context_menu(emp_combo)
 
         def on_combo_selected(_event=None):
             sel_name = name_var.get().strip()
@@ -493,16 +568,22 @@ class RequestsView(ttk.Frame):
             ).pack(side="left", padx=(6, 0))
 
         ttk.Label(frame, text="Подразделение:").grid(row=1, column=0, sticky="w", pady=6)
-        ttk.Entry(frame, textvariable=dept_var, width=42).grid(row=1, column=1, sticky="w", pady=6)
+        dept_entry = ttk.Entry(frame, textvariable=dept_var, width=42)
+        dept_entry.grid(row=1, column=1, sticky="w", pady=6)
+        _add_entry_context_menu(dept_entry)
 
         ttk.Label(frame, text="Номер заявки:").grid(row=2, column=0, sticky="w", pady=6)
         number_var = tk.StringVar()
-        ttk.Entry(frame, textvariable=number_var, width=42).grid(row=2, column=1, sticky="w", pady=6)
+        num_entry = ttk.Entry(frame, textvariable=number_var, width=42)
+        num_entry.grid(row=2, column=1, sticky="w", pady=6)
+        _add_entry_context_menu(num_entry)
         ttk.Label(frame, text="(оставьте пустым для автогенерации)", font=(UI_FONT, 8)).grid(row=3, column=1, sticky="w")
 
         ttk.Label(frame, text="Примечание:").grid(row=4, column=0, sticky="w", pady=6)
         comment_var = tk.StringVar()
-        ttk.Entry(frame, textvariable=comment_var, width=42).grid(row=4, column=1, sticky="w", pady=6)
+        comment_entry = ttk.Entry(frame, textvariable=comment_var, width=42)
+        comment_entry.grid(row=4, column=1, sticky="w", pady=6)
+        _add_entry_context_menu(comment_entry)
 
         def save():
             name = name_var.get().strip()
@@ -552,7 +633,16 @@ class RequestsView(ttk.Frame):
 
         statuses = [s for s in CertificateRequestStatus]
         status_map = {s.label: s for s in statuses}
-        selected_status_var = tk.StringVar(value=statuses[0].label)
+        current_request = next(
+            (request for request in self.requests if request.id == req_id),
+            None,
+        )
+        current_status = (
+            current_request.status
+            if current_request is not None
+            else CertificateRequestStatus.NOT_SUBMITTED
+        )
+        selected_status_var = tk.StringVar(value=current_status.label)
 
         combo = ttk.Combobox(
             frame,
@@ -588,7 +678,7 @@ class RequestsView(ttk.Frame):
         req_id = int(selection[0])
         dialog = tk.Toplevel(self)
         dialog.title("Привязка сертификата к заявке")
-        dialog.geometry("450x180")
+        dialog.geometry("760x440")
         dialog.resizable(False, False)
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
@@ -596,17 +686,103 @@ class RequestsView(ttk.Frame):
         frame = ttk.Frame(dialog, padding=16)
         frame.pack(fill="both", expand=True)
 
-        ttk.Label(frame, text="SHA-256 отпечаток сертификата:").pack(anchor="w", pady=(0, 4))
-        fp_var = tk.StringVar()
-        ttk.Entry(frame, textvariable=fp_var, width=50).pack(fill="x", pady=4)
+        certificates = self.app.certificates.list(
+            CertificateQuery(limit=None, sort="subject")
+        )
+
+        ttk.Label(frame, text="Выберите сертификат из хранилища:").pack(
+            anchor="w",
+            pady=(0, 6),
+        )
+
+        search_var = tk.StringVar()
+        search_entry = ttk.Entry(frame, textvariable=search_var)
+        search_entry.pack(fill="x", pady=(0, 8))
+        _add_entry_context_menu(search_entry)
+
+        table_frame = ttk.Frame(frame)
+        table_frame.pack(fill="both", expand=True)
+        columns = ("subject", "file", "valid_to", "status")
+        picker = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show="headings",
+            selectmode="browse",
+        )
+        for column, title, width in (
+            ("subject", "Владелец", 230),
+            ("file", "Файл", 190),
+            ("valid_to", "Действителен до", 110),
+            ("status", "Статус", 120),
+        ):
+            picker.heading(column, text=title)
+            picker.column(column, width=width, minwidth=80)
+        scroll = ttk.Scrollbar(table_frame, orient="vertical", command=picker.yview)
+        picker.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right", fill="y")
+        picker.pack(fill="both", expand=True)
+        empty_label = EmptyStateLabel(
+            table_frame,
+            "В хранилище пока нет сертификатов\n"
+            "Сначала добавьте сертификат на одноимённой вкладке",
+        )
+
+        def populate_picker(*_args) -> None:
+            query = search_var.get().strip().casefold()
+            picker.delete(*picker.get_children())
+            for certificate in certificates:
+                row = certificate_to_dict(certificate)
+                values = (
+                    certificate.subject,
+                    certificate.original_name,
+                    row["valid_to"],
+                    row["status"],
+                )
+                haystack = " ".join(str(value) for value in values).casefold()
+                if query and query not in haystack:
+                    continue
+                picker.insert(
+                    "",
+                    "end",
+                    iid=certificate.fingerprint_sha256,
+                    values=values,
+                )
+            if picker.get_children():
+                empty_label.hide()
+            elif query:
+                empty_label.show("Сертификаты не найдены\nИзмените поисковый запрос")
+            else:
+                empty_label.show()
+
+        search_var.trace_add("write", populate_picker)
+        populate_picker()
+
+        current_request = next(
+            (request for request in self.requests if request.id == req_id),
+            None,
+        )
+        if current_request and current_request.certificate_fingerprint:
+            current = current_request.certificate_fingerprint
+            if current in picker.get_children():
+                picker.selection_set(current)
+                picker.focus(current)
+                picker.see(current)
 
         def link():
-            fp = fp_var.get().strip().upper()
-            if not fp:
-                messagebox.showwarning("Внимание", "Введите SHA-256 отпечаток", parent=dialog)
+            picked = picker.selection()
+            if not picked:
+                messagebox.showwarning(
+                    "Внимание",
+                    "Выберите сертификат из списка",
+                    parent=dialog,
+                )
                 return
+            fingerprint = picked[0]
             try:
-                ok = self.app.certificate_requests.link_certificate(req_id, fp)
+                ok = self.app.certificate_requests.link_certificate(
+                    req_id,
+                    fingerprint,
+                )
                 if not ok:
                     messagebox.showerror("Ошибка", "Заявка не найдена", parent=dialog)
                     return
@@ -615,6 +791,17 @@ class RequestsView(ttk.Frame):
                 self.on_message("Сертификат успешно привязан к заявке")
             except Exception as exc:
                 messagebox.showerror("Ошибка", str(exc), parent=dialog)
+
+        def on_picker_double_click(event: tk.Event) -> None:
+            item = picker.identify_row(event.y)
+            if not item:
+                return
+            picker.selection_set(item)
+            picker.focus(item)
+            link()
+
+        picker.bind("<Double-1>", on_picker_double_click)
+        picker.bind("<Return>", lambda _: link())
 
         btn_box = ttk.Frame(frame)
         btn_box.pack(fill="x", pady=12, side="bottom")
@@ -637,5 +824,23 @@ class RequestsView(ttk.Frame):
             self.on_message("Заявка отмечена как обработанная")
 
     def delete_selected(self) -> None:
-        """Обрабатывает выбранную заявку (переводит в статус «Обработана» вместо удаления)."""
-        self.mark_processed()
+        """Удаляет выбранные заявки из базы данных."""
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showinfo("Выбор", "Выберите заявку из списка")
+            return
+
+        if messagebox.askyesno(
+            "Подтверждение",
+            f"Вы действительно хотите удалить {len(selection)} заявки(ок)?",
+        ):
+            count = 0
+            for item in selection:
+                req_id = int(item)
+                try:
+                    if self.app.certificate_requests.delete_request(req_id):
+                        count += 1
+                except Exception as exc:
+                    self.on_message(f"Ошибка удаления: {exc}")
+            self.refresh()
+            self.on_message(f"Удалено заявок: {count}")

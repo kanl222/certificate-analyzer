@@ -1,6 +1,7 @@
 """Представление вкладки машиночитаемых доверенностей (МЧД) и диалоговые окна."""
 
-from datetime import UTC, datetime
+from datetime import timezone, datetime
+UTC = timezone.utc
 import os
 from pathlib import Path
 import tkinter as tk
@@ -28,6 +29,10 @@ from certificate_analyzer.presentation.gui.styles import (
     UI_FONT,
     WARNING_COLOR,
     WARNING_TEXT,
+)
+from certificate_analyzer.presentation.gui.widgets.table_state import (
+    EmptyStateLabel,
+    sort_heading_text,
 )
 
 
@@ -345,7 +350,8 @@ class MchdPersonalDataWindow:
                     "Срок действия",
                     self.mchd.get("expiry_date", "Не найдена"),
                 ),
-                ("Статус", self.mchd.get("status", "Не определен")),
+                ("Статус срока", self.mchd.get("status", "Не определен")),
+                ("Проверка подлинности", "Не проверена (подпись, доверие, отзыв)"),
             ],
         )
 
@@ -470,7 +476,7 @@ class MchdView(ttk.Frame):
         "full_name": ("ФИО представителя", 190),
         "principal_name": ("Организация-доверитель", 190),
         "authority_codes": ("Полномочия", 220),
-        "status": ("Статус", 110),
+        "status": ("Статус срока", 110),
     }
 
     def __init__(
@@ -502,6 +508,8 @@ class MchdView(ttk.Frame):
         self.filtered_data: list[dict[str, Any]] = list(self.mchd_data)
         self.selected_items: tuple[str, ...] = ()
         self.sort_reverse: dict[str, bool] = {}
+        self.sort_column_key: str | None = None
+        self.sort_descending = False
         self._row_to_mchd: dict[str, dict[str, Any]] = {}
 
         self._build_ui()
@@ -559,7 +567,7 @@ class MchdView(ttk.Frame):
         search_entry = ttk.Entry(filter_bar, textvariable=self.search_var, width=28)
         search_entry.grid(row=0, column=1, sticky=tk.EW, padx=(6, 12))
 
-        ttk.Label(filter_bar, text="Статус:", style="Panel.TLabel").grid(
+        ttk.Label(filter_bar, text="Статус срока:", style="Panel.TLabel").grid(
             row=0, column=2, sticky=tk.E, padx=(0, 4)
         )
         self.status_var = tk.StringVar(value="Все статусы")
@@ -647,6 +655,11 @@ class MchdView(ttk.Frame):
             yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set
         )
         self.tree.pack(fill=tk.BOTH, expand=True)
+        self.empty_label = EmptyStateLabel(
+            table_frame,
+            "Доверенностей пока нет\nИмпортируйте XML или просканируйте папку",
+        )
+        self.empty_label.show()
 
         self.tree.tag_configure(
             "expired", background=EXPIRED_COLOR, foreground=EXPIRED_TEXT
@@ -716,7 +729,7 @@ class MchdView(ttk.Frame):
         self.mchd_detail_fields: dict[str, ttk.Label] = {}
         property_labels = (
             ("doc_number", "Номер"),
-            ("status", "Статус"),
+            ("status", "Статус срока"),
             ("full_name", "Представитель"),
             ("issuer_org_name", "Доверитель"),
             ("issue_date", "Дата выдачи"),
@@ -982,6 +995,17 @@ class MchdView(ttk.Frame):
                 tags=tuple(tags),
             )
 
+        if self.filtered_data:
+            self.empty_label.hide()
+        elif self.search_var.get().strip() or self.status_var.get() != "Все статусы":
+            self.empty_label.show(
+                "По заданным условиям ничего не найдено\nИзмените или сбросьте фильтры"
+            )
+        else:
+            self.empty_label.show(
+                "Доверенностей пока нет\nИмпортируйте XML или просканируйте папку"
+            )
+
         self.selected_items = ()
         self.on_select()
 
@@ -1032,6 +1056,7 @@ class MchdView(ttk.Frame):
         Args:
             col: Идентификатор столбца.
         """
+        descending = self.sort_reverse[col]
         data = [
             (self.tree.set(child, col), child)
             for child in self.tree.get_children("")
@@ -1047,17 +1072,29 @@ class MchdView(ttk.Frame):
                 return datetime.min.replace(tzinfo=UTC)
 
             data.sort(
-                key=lambda x: parse_d(x[0]), reverse=self.sort_reverse[col]
+                key=lambda x: parse_d(x[0]), reverse=descending
             )
         else:
             data.sort(
-                key=lambda x: str(x[0]).lower(), reverse=self.sort_reverse[col]
+                key=lambda x: str(x[0]).lower(), reverse=descending
             )
 
         for index, (_, child) in enumerate(data):
             self.tree.move(child, "", index)
 
-        self.sort_reverse[col] = not self.sort_reverse[col]
+        self.sort_column_key = col
+        self.sort_descending = descending
+        for column in self.COLUMNS:
+            title, _width = self.COLUMN_HEADINGS[column]
+            self.tree.heading(
+                column,
+                text=sort_heading_text(
+                    title,
+                    column == self.sort_column_key,
+                    self.sort_descending,
+                ),
+            )
+        self.sort_reverse[col] = not descending
 
     def on_select(self, _event=None) -> None:
         """Обновляет состояние панели деталей при изменении выделения строк."""
@@ -1400,8 +1437,13 @@ class MchdView(ttk.Frame):
         if path and os.path.exists(path):
             open_path(os.path.dirname(path))
 
-    def on_double_click(self, _event: tk.Event) -> None:
-        """Обрабатывает двойной клик мыши по строке таблицы (открывает карточку МЧД)."""
+    def on_double_click(self, event: tk.Event) -> None:
+        """Открывает карточку только при двойном щелчке по строке таблицы."""
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+        self.tree.selection_set(item)
+        self.tree.focus(item)
         self.view_personal_data()
 
 

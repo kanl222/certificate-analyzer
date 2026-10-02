@@ -189,7 +189,7 @@ class CertificateAnalyzerApp:
         """Обновляет в нижней панели состояние системной службы мониторинга."""
         if self.closing:
             return
-        self.monitor_status.config(text=monitoring_process_status())
+        self.monitor_status.config(text=monitoring_process_status(self.app.settings))
         self.monitor_status_after = self.root.after(
             30000, self._schedule_monitor_status
         )
@@ -605,6 +605,31 @@ class CertificateAnalyzerApp:
             self.mchd_view.scan_folder()
 
     # ---------------- Вспомогательные окна и диалоги ----------------
+
+    def show_service_log(self) -> None:
+        from certificate_analyzer.presentation.gui.views.service_log_view import ServiceLogWindow
+        ServiceLogWindow(self.root)
+
+    def manage_background_process(self, action: str) -> None:
+        """Управляет пользовательским демоном, не блокируя интерфейс."""
+        from certificate_analyzer.runtime.user_daemon import (
+            ensure_writer, stop_writer, restart_writer, set_autostart,
+        )
+        operations = {
+            "start": (lambda: ensure_writer(self.app.settings), "Фоновый процесс запущен"),
+            "stop": (lambda: stop_writer(self.app.settings), "Фоновый процесс остановлен. Запись данных недоступна до запуска."),
+            "restart": (lambda: restart_writer(self.app.settings), "Фоновый процесс перезапущен"),
+            "status": (lambda: monitoring_process_status(self.app.settings), None),
+            "enable_autostart": (lambda: set_autostart(True, self.config_path), "Автозапуск при входе включён"),
+            "disable_autostart": (lambda: set_autostart(False, self.config_path), "Автозапуск при входе отключён"),
+        }
+        operation, message = operations[action]
+
+        def finished(result):
+            self.monitor_status.config(text=monitoring_process_status(self.app.settings))
+            self.set_message(message or result)
+
+        self.task_runner.submit(action=operation, finished=finished)
 
     def show_settings(self) -> None:
         """Открывает диалоговое окно настроек хранилища и параметров приложения.

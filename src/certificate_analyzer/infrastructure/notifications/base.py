@@ -6,7 +6,7 @@ from typing import Protocol
 class NotificationBackend(Protocol):
     """Абстрактный интерфейс бэкенда уведомлений."""
 
-    def send(self, title: str, message: str) -> None:
+    def send(self, title: str, message: str, notification_type: str = "info", **metadata) -> None:
         """Отправляет уведомление.
 
         Args:

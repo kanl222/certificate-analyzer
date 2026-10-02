@@ -22,6 +22,10 @@ from certificate_analyzer.infrastructure.config.config_loader import (
 from certificate_analyzer.presentation.gui.widgets.certificate_details import (
     CertificateDetails,
 )
+from certificate_analyzer.presentation.gui.widgets.table_state import (
+    EmptyStateLabel,
+    sort_heading_text,
+)
 
 STATUS_LABELS: dict[str, CertificateStatus | None] = {
     "Все статусы": None,
@@ -37,7 +41,7 @@ COLUMNS: dict[str, tuple[str, int]] = {
     "original_name": ("Файл", 180),
     "valid_to": ("Действителен до", 120),
     "department": ("Подразделение", 180),
-    "status": ("Статус", 140),
+    "status": ("Статус срока", 140),
     "issuer": ("Издатель", 180),
 }
 
@@ -214,6 +218,7 @@ class CertificatesView(ttk.Frame):
                 key, text=title, command=lambda key=key: self.sort_by(key)
             )
             self.tree.column(key, width=width, minwidth=90)
+        self._update_sort_headings()
 
         scroll_y = ttk.Scrollbar(table, command=self.tree.yview)
         scroll_y.pack(side="right", fill="y")
@@ -228,11 +233,15 @@ class CertificatesView(ttk.Frame):
             xscrollcommand=scroll_x.set,
         )
         self.tree.pack(fill="both", expand=True)
+        self.empty_label = EmptyStateLabel(
+            table,
+            "Сертификатов пока нет\nДобавьте сертификат или импортируйте папку",
+        )
 
         self.tree.tag_configure("expired", foreground="#a82020")
         self.tree.tag_configure("warning", foreground="#805500")
         self.tree.bind("<<TreeviewSelect>>", self.show_details)
-        self.tree.bind("<Double-1>", self.open_certificate)
+        self.tree.bind("<Double-1>", self.on_double_click)
 
         # Контекстное меню таблицы
         self._tree_menu = tk.Menu(self.winfo_toplevel(), tearoff=0)
@@ -456,6 +465,24 @@ class CertificatesView(ttk.Frame):
                     tags=(tag,),
                 )
 
+            if records:
+                self.empty_label.hide()
+            elif any(
+                (
+                    self.search_var.get().strip(),
+                    self.status_var.get() != "Все статусы",
+                    date_from_val,
+                    date_to_val,
+                )
+            ):
+                self.empty_label.show(
+                    "По заданным условиям ничего не найдено\nИзмените или сбросьте фильтры"
+                )
+            else:
+                self.empty_label.show(
+                    "Сертификатов пока нет\nДобавьте сертификат или импортируйте папку"
+                )
+
             summary = (
                 f"Всего: {stats['total']}    "
                 f"Активные: {stats['ACTIVE']}    "
@@ -492,7 +519,16 @@ class CertificatesView(ttk.Frame):
         """
         self.descending = not self.descending if self.sort == key else False
         self.sort = key
+        self._update_sort_headings()
         self.refresh(reset=True)
+
+    def _update_sort_headings(self) -> None:
+        """Показывает направление сортировки в активном заголовке."""
+        for key, (title, _width) in COLUMNS.items():
+            self.tree.heading(
+                key,
+                text=sort_heading_text(title, key == self.sort, self.descending),
+            )
 
     def change_page(self, delta: int) -> None:
         """Переключает страницу пагинации на указанное смещение.
@@ -543,6 +579,15 @@ class CertificatesView(ttk.Frame):
         state = "normal" if enabled else "disabled"
         for button in getattr(self, "detail_action_buttons", ()):
             button.config(state=state)
+
+    def on_double_click(self, event: tk.Event) -> None:
+        """Открывает сертификат только при двойном щелчке по строке."""
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+        self.tree.selection_set(item)
+        self.tree.focus(item)
+        self.open_certificate()
 
     def open_certificate(self, _=None) -> None:
         """Открывает файл выбранного сертификата системной программой по умолчанию.

@@ -49,20 +49,24 @@ class MchdValidator:
         errors: list[str] = []
 
         # 1. Проверка номера/идентификатора доверенности
-        doc_id = get_value(root, "ИдДовер", "НомерДовер", "Номер")
+        doc_id = get_value(root, "ИдДовер", "НомерДовер", "Номер", "НомДовер", "DocumentId")
         if not doc_id:
             errors.append("Отсутствует обязательный идентификатор (номер) доверенности")
 
         # 2. Проверка дат действия
-        date_from = get_value(root, "ДатаВыд", "ДатаНач", "ДатаВыдачи")
-        date_to = get_value(root, "ДатаКон", "СрокДейст", "ДатаОконч")
+        date_from = get_value(root, "ДатаВыд", "ДатаНач", "ДатаВыдачи", "ДатаВыдДовер", "IssueDate")
+        date_to = get_value(root, "ДатаКон", "СрокДейст", "ДатаОконч", "ExpiryDate")
         if not date_from:
             errors.append("Отсутствует дата выдачи (начала действия) доверенности")
         if not date_to:
             errors.append("Отсутствует дата окончания действия доверенности")
 
         # 3. Проверка доверителя
-        principal = find_element(root, "Доверитель") or find_element(root, "СвДоверит")
+        principal = (
+            find_element(root, "Доверитель")
+            or find_element(root, "СвДоверит")
+            or find_element(root, "СвРосОрг")
+        )
         if principal is None:
             errors.append("В документе не найден блок сведений о доверителе")
         else:
@@ -71,7 +75,11 @@ class MchdValidator:
                 errors.append(f"Некорректный формат ИНН доверителя: {inn}")
 
         # 4. Проверка представителя
-        rep = find_element(root, "Представитель") or find_element(root, "СвУполном")
+        rep = (
+            find_element(root, "Представитель")
+            or find_element(root, "СвУполном")
+            or find_element(root, "СвУпПред")
+        )
         if rep is None:
             errors.append("В документе не найден блок сведений о представителе")
         else:

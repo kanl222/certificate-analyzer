@@ -15,6 +15,10 @@ packaging/linux/output/
 # Virtual environments
 .venv
 .venv-linux
+.pytest-tmp/
+.pytest_cache/
+.ruff_cache/
+.security-test-tmp*/
 scratch/*
 *.db
 MEMORY.md
@@ -24,3 +28,4 @@ MEMORY.md
 *.crt
 *.xlsx
 .githooks/pre-commit
+test_mchd/*

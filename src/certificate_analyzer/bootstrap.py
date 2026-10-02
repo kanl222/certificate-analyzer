@@ -82,7 +82,7 @@ class ApplicationContainer:
         self.close()
 
 
-def create_application(config_path=None, *, settings=None) -> ApplicationContainer:
+def create_application(config_path=None, *, settings=None, read_only=False) -> ApplicationContainer:
     """Создает и настраивает экземпляр контейнера приложения.
 
     Args:
@@ -96,7 +96,7 @@ def create_application(config_path=None, *, settings=None) -> ApplicationContain
         Exception: При ошибке инициализации базы данных или сервисов.
     """
     settings = settings or load_settings(config_path)
-    database = Database(get_database_path(settings))
+    database = Database(get_database_path(settings), read_only=read_only)
     try:
         phonebook = PhoneBook()
         repository = CertificateRepository(database.sessions, settings.warning_days)
@@ -133,7 +133,7 @@ def create_application(config_path=None, *, settings=None) -> ApplicationContain
             settings=settings,
         )
 
-        return ApplicationContainer(
+        application = ApplicationContainer(
             settings=settings,
             database=database,
             certificates=certificates,
@@ -148,6 +148,10 @@ def create_application(config_path=None, *, settings=None) -> ApplicationContain
             monitoring=monitoring_service,
             mchd_repository=mchd_repo,
         )
+        if read_only:
+            from certificate_analyzer.runtime.write_api import configure_client
+            configure_client(application)
+        return application
 
     except Exception:
         database.close()

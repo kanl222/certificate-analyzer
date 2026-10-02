@@ -39,6 +39,7 @@ class EmployeeRepository:
             inn=model.inn,
             snils=model.snils,
             birth_date=model.birth_date,
+            is_management=bool(model.is_management),
         )
 
     def save(self, employee: Employee) -> Employee:
@@ -70,6 +71,7 @@ class EmployeeRepository:
                     inn=employee.inn,
                     snils=employee.snils,
                     birth_date=employee.birth_date,
+                    is_management=employee.is_management,
                 )
                 session.add(model)
                 session.flush()
@@ -83,6 +85,7 @@ class EmployeeRepository:
                 model.inn = employee.inn or model.inn
                 model.snils = employee.snils or model.snils
                 model.birth_date = employee.birth_date or model.birth_date
+                model.is_management = employee.is_management
 
             session.flush()
             session.refresh(model)
@@ -139,6 +142,7 @@ class EmployeeRepository:
                     or term in (m.office or "").casefold()
                     or term in (m.phones or "").casefold()
                     or term in (m.email or "").casefold()
+                    or (term in ("руководство", "руководитель") and m.is_management)
                 ]
             return [self._to_domain(m) for m in models]
 

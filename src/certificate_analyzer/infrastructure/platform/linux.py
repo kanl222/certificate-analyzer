@@ -4,6 +4,8 @@ from pathlib import Path
 import shutil
 import subprocess
 
+from certificate_analyzer.infrastructure.platform.safe_open import validate_open_file
+
 
 class LinuxPlatformFileManager:
     """Реализация управления файлами и средой рабочего стола Linux."""
@@ -18,9 +20,7 @@ class LinuxPlatformFileManager:
             FileNotFoundError: Если файл не найден.
             OSError: При ошибке выполнения команды.
         """
-        p = Path(path).resolve()
-        if not p.exists():
-            raise FileNotFoundError(f"Файл не найден: {p}")
+        p = validate_open_file(path)
         subprocess.Popen(["xdg-open", str(p)])
 
     def reveal_file(self, path: str | Path) -> None:

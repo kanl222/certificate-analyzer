@@ -61,12 +61,18 @@ class EmployeeService:
         """
         return self.repository.save(employee)
 
-    def get_or_create(self, full_name: str, department: str | None = None) -> Employee:
+    def get_or_create(
+        self,
+        full_name: str,
+        department: str | None = None,
+        is_management: bool = False,
+    ) -> Employee:
         """Получает существующего сотрудника по ФИО или создает нового.
 
         Args:
             full_name: Полное имя (ФИО) сотрудника.
             department: Подразделение сотрудника при создании.
+            is_management: Признак принадлежности к руководящему составу.
 
         Returns:
             Employee: Найденный или вновь созданный сотрудник.
@@ -74,7 +80,13 @@ class EmployeeService:
         existing = self.find_by_name(full_name)
         if existing:
             return existing
-        return self.save_employee(Employee(full_name=full_name, department=department))
+        return self.save_employee(
+            Employee(
+                full_name=full_name,
+                department=department,
+                is_management=is_management,
+            )
+        )
 
     def delete_employee(self, employee_id: int) -> bool:
         """Удаляет сотрудника по его идентификатору.

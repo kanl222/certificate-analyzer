@@ -2,7 +2,7 @@
 
 from datetime import date
 from typing import TYPE_CHECKING
-from sqlalchemy import Date, String
+from sqlalchemy import Boolean, Date, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -27,6 +27,7 @@ class EmployeeModel(Base):
     inn: Mapped[str | None] = mapped_column(String(20), nullable=True)
     snils: Mapped[str | None] = mapped_column(String(20), nullable=True)
     birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    is_management: Mapped[bool] = mapped_column(Boolean, default=False)
 
     certificates: Mapped[list["CertificateModel"]] = relationship(
         back_populates="employee"

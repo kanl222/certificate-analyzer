@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import subprocess
 
+from certificate_analyzer.infrastructure.platform.safe_open import validate_open_file
+
 
 class SHFILEOPSTRUCTW(ctypes.Structure):
     """Структура Win32 API для выполнения операций над файлами через оболочку."""
@@ -41,9 +43,7 @@ class WindowsPlatformFileManager:
             FileNotFoundError: Если файл не найден.
             OSError: При ошибке открытия.
         """
-        p = Path(path).resolve()
-        if not p.exists():
-            raise FileNotFoundError(f"Файл не найден: {p}")
+        p = validate_open_file(path)
         os.startfile(str(p))
 
     def reveal_file(self, path: str | Path) -> None:

@@ -5,7 +5,7 @@ from pathlib import Path
 import sqlite3
 from datetime import datetime, timezone
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 
@@ -194,6 +194,18 @@ def migrate(engine, path):
                                 "INSERT INTO mchd_authorities (mchd_number, code, name) VALUES (?, ?, ?)",
                                 (num, code, None),
                             )
+
+            if current_version < 5 and "employees" in tables:
+                emp_cols = {
+                    r[1]
+                    for r in connection.exec_driver_sql(
+                        "PRAGMA table_info(employees)"
+                    )
+                }
+                if "is_management" not in emp_cols:
+                    connection.exec_driver_sql(
+                        "ALTER TABLE employees ADD COLUMN is_management BOOLEAN NOT NULL DEFAULT 0"
+                    )
 
             connection.exec_driver_sql(f"PRAGMA user_version={SCHEMA_VERSION}")
             connection.commit()

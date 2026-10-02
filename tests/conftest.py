@@ -1,4 +1,5 @@
-from datetime import UTC, datetime, timedelta
+from datetime import timezone, datetime, timedelta
+UTC = timezone.utc
 
 import pytest
 from cryptography import x509
@@ -10,6 +11,15 @@ from cryptography.x509.oid import NameOID
 @pytest.fixture(autouse=True)
 def isolated_profile(tmp_path, monkeypatch):
     monkeypatch.setenv("CERTIFICATE_ANALYZER_HOME", str(tmp_path / "profile"))
+    yield
+    # CLI starts a persistent user daemon; don't leak test daemons between tests.
+    from certificate_analyzer.runtime.ipc import WriteClient, WriterUnavailable, WriteCommandError, token_path
+    path = tmp_path / "profile" / "certificates.db"
+    if token_path(path).exists():
+        try:
+            WriteClient(path, timeout=3).call(method="stop")
+        except (WriterUnavailable, WriteCommandError):
+            pass
 
 
 @pytest.fixture

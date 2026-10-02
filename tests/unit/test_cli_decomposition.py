@@ -57,11 +57,7 @@ def test_parser_import_and_scan():
     assert args_scan.mchd is True
 
 
-def test_parser_passes_service_options_through_to_pywin32():
-    """Параметры регистрации службы не должен поглощать основной парсер."""
-    args = build_parser().parse_args(
-        ["service", "--startup", "auto", "install"]
-    )
-
-    assert args.startup == "auto"
-    assert args.service_action == "install"
+def test_parser_supports_user_daemon_autostart():
+    args = build_parser().parse_args(["autostart", "enable"])
+    assert args.command == "autostart"
+    assert args.action == "enable"

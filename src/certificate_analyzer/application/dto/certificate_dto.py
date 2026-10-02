@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
-from datetime import UTC, datetime
+from datetime import timezone, datetime
+UTC = timezone.utc
 from typing import Any
 
 from certificate_analyzer.domain.enums.certificate_status import CertificateStatus
@@ -74,11 +75,11 @@ STATUS_VIEW: dict[CertificateStatus, tuple[str, str]] = {
         "#e57373",
     ),
     CertificateStatus.ACTIVE: (
-        "Активен",
+        "В пределах срока",
         "#81c784",
     ),
     CertificateStatus.INVALID: (
-        "Недействителен",
+        "Вне срока / неверные даты",
         "#e57373",
     ),
     CertificateStatus.REVOKED: (
@@ -134,6 +135,8 @@ def certificate_to_dto(cert) -> CertificateDTO:
         color=color,
         details={
             "fingerprint_sha256": cert.fingerprint_sha256,
+            "verification_status": "NOT_CHECKED",
+            "Проверка подлинности": "Не проверена (подпись, доверие, отзыв)",
             "issuer": cert.issuer,
             "original_name": cert.original_name,
         },

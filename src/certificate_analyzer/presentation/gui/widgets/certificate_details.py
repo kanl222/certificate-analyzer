@@ -65,6 +65,7 @@ class CertificateDetails(ttk.LabelFrame):
                 style="Panel.TLabel",
             ).grid(row=row, column=0, sticky=tk.NW, pady=4, padx=(0, 10))
             widget.grid(row=row, column=1, sticky=tk.EW, pady=4)
+        ttk.Label(self, text="Подлинность не проверена:\nподпись, доверие УЦ и отзыв", wraplength=240, style="Panel.TLabel").grid(row=len(self.fields), column=0, columnspan=2, sticky=tk.W, pady=8)
         self.bind("<Configure>", self._resize_values, add="+")
 
     def _resize_values(self, event):

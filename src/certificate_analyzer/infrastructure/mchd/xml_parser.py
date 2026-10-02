@@ -155,7 +155,7 @@ class MchdXmlParser:
             representative_snils=get_value(representative, "СНИЛС"),
             valid_from=valid_from,
             valid_to=valid_to,
-            status=mchd_status(valid_to),
+            status=mchd_status(valid_to, valid_from=valid_from),
             authority_codes=collect_authority_codes(root),
             source_path=str(Path(xml_path).resolve()),
             authority_names=[
