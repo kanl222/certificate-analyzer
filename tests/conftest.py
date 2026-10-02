@@ -1,5 +1,4 @@
 from datetime import timezone, datetime, timedelta
-UTC = timezone.utc
 
 import pytest
 from cryptography import x509
@@ -7,6 +6,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
+
+UTC = timezone.utc
 
 @pytest.fixture(autouse=True)
 def isolated_profile(tmp_path, monkeypatch):
@@ -26,6 +27,7 @@ def isolated_profile(tmp_path, monkeypatch):
 def application(tmp_path):
     from certificate_analyzer.bootstrap import create_application
     from certificate_analyzer.infrastructure.config.settings import Settings
+
 
     with create_application(
         settings=Settings(

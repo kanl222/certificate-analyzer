@@ -1,7 +1,6 @@
 """Представление вкладки машиночитаемых доверенностей (МЧД) и диалоговые окна."""
 
 from datetime import timezone, datetime
-UTC = timezone.utc
 import os
 from pathlib import Path
 import tkinter as tk
@@ -35,6 +34,8 @@ from certificate_analyzer.presentation.gui.widgets.table_state import (
     sort_heading_text,
 )
 
+
+UTC = timezone.utc
 
 class AuthoritiesViewWindow:
     """Окно детального просмотра объединенных полномочий нескольких МЧД."""
@@ -1390,6 +1391,7 @@ class MchdView(ttk.Frame):
             from certificate_analyzer.infrastructure.reports.excel_exporter import (
                 ExcelReportExporter,
             )
+
 
             ExcelReportExporter().export_rows(
                 self.filtered_data, save_path, "Отчет по МЧД"

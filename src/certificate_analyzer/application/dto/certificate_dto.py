@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
 from datetime import timezone, datetime
-UTC = timezone.utc
 from typing import Any
 
 from certificate_analyzer.domain.enums.certificate_status import CertificateStatus
 
+
 EMPTY = "—"
 
+
+UTC = timezone.utc
 
 def utc(dt: datetime) -> datetime:
     """Normalize datetime to UTC."""

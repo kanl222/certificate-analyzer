@@ -1,6 +1,5 @@
 import tkinter as tk
-from datetime import timezone
-UTC = timezone.utc
+from datetime import timezone, datetime
 from tkinter import messagebox, ttk
 
 from certificate_analyzer.infrastructure.persistence.notification_history import (
@@ -20,6 +19,9 @@ from certificate_analyzer.presentation.gui.styles import (
 )
 from certificate_analyzer.presentation.gui.widgets.toast import ToastNotification
 
+
+
+UTC = timezone.utc
 
 class NotificationHistory:
     def __init__(self, parent):

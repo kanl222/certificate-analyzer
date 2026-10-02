@@ -1,8 +1,10 @@
 from datetime import timezone, datetime, timedelta
-UTC = timezone.utc
 
 from certificate_analyzer.domain.enums.certificate_status import CertificateStatus
 
+
+
+UTC = timezone.utc
 
 def utc(value):
     return (

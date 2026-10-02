@@ -1,7 +1,6 @@
 """Тесты сервиса регулярного мониторинга MonitoringService."""
 
 from datetime import datetime, timezone
-UTC = timezone.utc
 from unittest.mock import MagicMock
 
 
@@ -12,6 +11,9 @@ from certificate_analyzer.application.services.monitoring_service import (
 from certificate_analyzer.domain.enums.certificate_status import CertificateStatus
 from certificate_analyzer.domain.models.certificate import Certificate
 
+
+
+UTC = timezone.utc
 
 def test_monitoring_service_empty_records(tmp_path):
     """Проверяет поведение при отсутствии записей в базе данных."""
