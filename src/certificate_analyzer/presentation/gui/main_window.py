@@ -1,6 +1,7 @@
 """Главное окно приложения Certificate Analyzer и координация подсистем."""
 
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox, ttk
 from typing import Any, Callable
 
@@ -68,6 +69,11 @@ class CertificateAnalyzerApp:
         self.monitor_status_after: str | None = None
         self._notification_history: NotificationHistory | None = None
         self.root.title("Менеджер сертификатов")
+        icon_dir = Path(__file__).resolve().parents[2] / "assets"
+        self._window_icon = tk.PhotoImage(master=self.root, file=str(icon_dir / "app-icon.png"))
+        self.root.iconphoto(True, self._window_icon)
+        if self.root.tk.call("tk", "windowingsystem") == "win32":
+            self.root.iconbitmap(default=str(icon_dir / "app-icon.ico"))
         self._configure_window_geometry()
 
         self._build_ui()

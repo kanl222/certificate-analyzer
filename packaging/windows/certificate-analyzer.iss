@@ -24,6 +24,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#GuiExeName}
+SetupIconFile=..\..\src\certificate_analyzer\assets\app-icon.ico
 VersionInfoVersion={#AppVersion}
 
 [Languages]

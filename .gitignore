@@ -29,3 +29,6 @@ MEMORY.md
 *.xlsx
 .githooks/pre-commit
 test_mchd/*
+
+
+reports/*

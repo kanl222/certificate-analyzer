@@ -10,7 +10,7 @@ analysis = Analysis(
     [str(entry_point)],
     pathex=[str(project_root / "src")],
     binaries=[],
-    datas=[],
+    datas=[(str(project_root / "src/certificate_analyzer/assets"), "certificate_analyzer/assets")],
     hiddenimports=collect_submodules("certificate_analyzer"),
     hookspath=[],
     hooksconfig={},

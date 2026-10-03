@@ -66,6 +66,7 @@ install -d \
     "$PACKAGE_ROOT/usr/bin" \
     "$PACKAGE_ROOT/usr/share/doc/certificate-analyzer" \
     "$PACKAGE_ROOT/usr/share/applications" \
+    "$PACKAGE_ROOT/usr/share/icons/hicolor/256x256/apps" \
     "$PACKAGE_ROOT/usr/lib/systemd/user" \
     "$OUTPUT_DIR"
 
@@ -73,6 +74,8 @@ cp -a "$BUNDLE_DIR/." "$PACKAGE_ROOT/opt/certificate-analyzer/"
 ln -s /opt/certificate-analyzer/certificate-analyzer "$PACKAGE_ROOT/usr/bin/certificate-analyzer"
 install -m 0644 "$SCRIPT_DIR/certificate-analyzer.desktop" \
     "$PACKAGE_ROOT/usr/share/applications/certificate-analyzer.desktop"
+install -m 0644 "$PROJECT_ROOT/src/certificate_analyzer/assets/app-icon.png" \
+    "$PACKAGE_ROOT/usr/share/icons/hicolor/256x256/apps/certificate-analyzer.png"
 install -m 0644 "$SCRIPT_DIR/certificate-analyzer.service" \
     "$PACKAGE_ROOT/usr/lib/systemd/user/certificate-analyzer.service"
 install -m 0644 "$PROJECT_ROOT/LICENSE" \

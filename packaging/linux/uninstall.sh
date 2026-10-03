@@ -55,6 +55,8 @@ if [ -f "$desktop_file" ]; then
 fi
 
 # 4. Опциональная очистка данных
+rm -f -- "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/256x256/apps/certificate-analyzer.png"
+
 if [ "$PURGE_DATA" -eq 1 ]; then
     echo "Удаление данных и конфигурации (~/.certificate-analyzer)..."
     rm -rf "$HOME/.certificate-analyzer"

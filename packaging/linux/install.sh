@@ -223,6 +223,10 @@ install_desktop_entry() {
     local apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
     mkdir -p "$apps_dir"
     local desktop_file="$apps_dir/certificate-analyzer.desktop"
+    local icon_dir="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/256x256/apps"
+    local icon_source="$(dirname "$0")/../../src/certificate_analyzer/assets/app-icon.png"
+    mkdir -p "$icon_dir"
+    install -m 0644 "$icon_source" "$icon_dir/certificate-analyzer.png"
 
     cat > "$desktop_file" <<DESKTOP
 [Desktop Entry]
@@ -231,7 +235,7 @@ Type=Application
 Name=Certificate Analyzer
 Comment=Анализатор сертификатов X.509 и машиночитаемых доверенностей
 Exec=$executable gui
-Icon=security-high
+Icon=certificate-analyzer
 Terminal=false
 Categories=Office;Security;Utility;
 Keywords=certificate;mchd;x509;сертификат;мчд;
