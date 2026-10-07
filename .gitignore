@@ -19,6 +19,12 @@ packaging/linux/output/
 .pytest_cache/
 .ruff_cache/
 .security-test-tmp*/
+.encryption-test-tmp/
+.transfer-test-tmp/
+.transfer-test-verified*/
+.sqlcipher-test-runtime/
+.sqlcipher-tests/
+.rpm-test-tmp*/
 scratch/*
 *.db
 MEMORY.md

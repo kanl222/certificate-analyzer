@@ -79,7 +79,7 @@ systemctl --user status certificate-analyzer.service
 
 Запускайте эти команды от своего пользователя, без `sudo`. DEB должен быть собран для подходящей архитектуры и совместимой Linux-системы.
 
-### RPM-пакет: Fedora, Red Hat Enterprise Linux, Rocky Linux, AlmaLinux, РЕД ОС, openSUSE
+### RPM-пакет: ALT Linux, Fedora, Red Hat Enterprise Linux, Rocky Linux, AlmaLinux, РЕД ОС, openSUSE
 
 Скачайте RPM-пакет из [релизов проекта](https://github.com/kanl222/certificate-analyzer/releases), если он опубликован. Выберите архитектуру вашей системы: `x86_64` или `aarch64`. В каталоге со скачанным пакетом выполните:
 
@@ -89,6 +89,10 @@ sudo dnf install ./certificate-analyzer-*.rpm
 
 # openSUSE
 sudo zypper install ./certificate-analyzer-*.rpm
+
+# ALT Linux: используйте сборку с релизом alt1
+sudo apt-get update
+sudo apt-get install ./certificate-analyzer-*-alt1.*.rpm
 
 # Запуск приложения
 certificate-analyzer gui
@@ -325,7 +329,21 @@ bash packaging/linux/build-deb.sh
 ```bash
 bash packaging/linux/build-rpm.sh
 ```
-Результат: `dist/linux/certificate-analyzer-<версия>-1.<архитектура>.rpm`.
+Результат: `dist/linux/certificate-analyzer-<версия>-1.<архитектура>.rpm`; для ALT — `-alt1`.
+
+Для ALT Linux собирайте пакет на целевой платформе (или совместимой системе):
+
+```bash
+sudo apt-get install rpm-build
+bash packaging/linux/build-rpm.sh --distro alt
+
+# Упаковка готовой совместимой Linux-сборки без установки uv:
+bash packaging/linux/build-rpm.sh --distro alt --bundle-dir /path/to/bundle --version 0.2.0
+```
+
+Профиль ALT выбирается автоматически по `/etc/os-release`. RPM другого
+дистрибутива может зависеть от несовместимой версии glibc; профиль пакета
+не делает готовые бинарные файлы совместимыми автоматически.
 
 Оба скрипта поддерживают параметр `--bundle-dir <путь>`, позволяющий упаковать уже собранный каталог приложения без повторного запуска PyInstaller. Сборка использует Python 3.11 и включает интерпретатор в пакет; совместимость зависит от системных библиотек машины сборки.
 

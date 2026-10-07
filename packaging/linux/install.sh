@@ -97,7 +97,23 @@ install_system_packages() {
 
     echo "Обнаружены отсутствующие компоненты: ${missing_tools[*]}"
 
-    if command -v apt-get >/dev/null 2>&1; then
+    local distro_id="" distro_like=""
+    if [ -r /etc/os-release ]; then
+        distro_id="$(. /etc/os-release; printf '%s' "${ID:-}")"
+        distro_like="$(. /etc/os-release; printf '%s' "${ID_LIKE:-}")"
+    fi
+    if [[ " $distro_id $distro_like " == *altlinux* ]] || [[ "$distro_id" == alt ]]; then
+        echo "Обнаружен ALT Linux (APT-RPM). Установка пакетов..."
+        run_privileged apt-get update
+        run_privileged apt-get install -y \
+            /usr/bin/notify-send \
+            python3-modules-tkinter \
+            xdg-utils \
+            /usr/bin/gio \
+            fontconfig \
+            fonts-ttf-dejavu \
+            fonts-ttf-google-noto-sans
+    elif command -v apt-get >/dev/null 2>&1; then
         echo "Обнаружен пакетный менеджер apt. Установка пакетов..."
         run_privileged apt-get update -y || true
         run_privileged apt-get install -y \

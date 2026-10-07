@@ -9,16 +9,34 @@ OUTPUT_DIR="$PROJECT_ROOT/dist/linux"
 export UV_PROJECT_ENVIRONMENT="${UV_PROJECT_ENVIRONMENT:-$PROJECT_ROOT/.venv-linux}"
 
 BUNDLE_DIR=""
+VERSION=""
+DISTRO="auto"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --bundle-dir)
+            if [ $# -lt 2 ] || [[ "$2" == --* ]]; then
+                echo "Для --bundle-dir требуется путь." >&2
+                exit 1
+            fi
             BUNDLE_DIR="$2"
             shift 2
             ;;
         --bundle-dir=*)
             BUNDLE_DIR="${1#*=}"
             shift
+            ;;
+        --version|--distro|--output-dir)
+            if [ $# -lt 2 ] || [[ "$2" == --* ]]; then
+                echo "Для $1 требуется значение." >&2
+                exit 1
+            fi
+            case "$1" in
+                --version) VERSION="$2" ;;
+                --distro) DISTRO="$2" ;;
+                --output-dir) OUTPUT_DIR="$2" ;;
+            esac
+            shift 2
             ;;
         -h|--help)
             echo "Использование: $0 [ПАРАМЕТРЫ]"
@@ -28,6 +46,9 @@ while [[ $# -gt 0 ]]; do
             echo "  --bundle-dir <путь>   Использовать уже собранную директорию приложения"
             echo "                        (пропускает этап сборки PyInstaller)"
             echo "  -h, --help            Показать эту справку"
+            echo "  --distro alt|generic  Профиль RPM (по умолчанию автоопределение)"
+            echo "  --version <версия>    Версия пакета; с --bundle-dir не требует uv"
+            echo "  --output-dir <путь>   Каталог готовых RPM"
             exit 0
             ;;
         *)
@@ -38,11 +59,25 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-for command in uv rpmbuild; do
+if [ ! -f "$RPM_SPEC_FILE" ]; then
+    echo "Не найден RPM spec: $RPM_SPEC_FILE" >&2
+    exit 1
+fi
+if [ "$DISTRO" = auto ]; then
+    DISTRO=generic
+    if [ -r /etc/os-release ]; then
+        . /etc/os-release
+        case " ${ID:-} ${ID_LIKE:-} " in *altlinux*|*" alt "*) DISTRO=alt ;; esac
+    fi
+fi
+case "$DISTRO" in alt) ALT_RPM=1; RELEASE=alt1 ;; generic) ALT_RPM=0; RELEASE=1 ;; *) echo "Неизвестный профиль: $DISTRO" >&2; exit 1 ;; esac
+required_commands=(rpmbuild)
+if [ -z "$BUNDLE_DIR" ] || [ -z "$VERSION" ]; then required_commands+=(uv); fi
+for command in "${required_commands[@]}"; do
     if ! command -v "$command" >/dev/null 2>&1; then
         echo "Не найдена команда '$command'." >&2
         if [ "$command" = "rpmbuild" ]; then
-            echo "Для сборки RPM установите пакет 'rpm-build' (Fedora/RHEL/CentOS), 'rpm-tools' (Arch/Ubuntu) или 'rpm' (openSUSE)." >&2
+            echo "Для ALT Linux/Fedora установите rpm-build; для openSUSE — rpm." >&2
         fi
         exit 1
     fi
@@ -87,7 +122,13 @@ if [ ! -x "$BUNDLE_DIR/certificate-analyzer" ] || [ ! -x "$BUNDLE_DIR/certificat
     exit 1
 fi
 
-VERSION="$(uv run --no-sync python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+if [ -z "$VERSION" ]; then
+    VERSION="$(uv run --no-sync python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+fi
+if [[ ! "$VERSION" =~ ^[0-9]+([.][0-9]+)*$ ]]; then
+    echo "Некорректная версия пакета: $VERSION" >&2
+    exit 1
+fi
 MACHINE="$(uname -m)"
 case "$MACHINE" in
     x86_64) ARCHITECTURE="x86_64" ;;
@@ -106,7 +147,8 @@ echo "==> Сборка RPM-пакета..."
 rpmbuild -bb \
     --define "_topdir $RPM_TOPDIR" \
     --define "pkg_version $VERSION" \
-    --define "pkg_release 1" \
+    --define "pkg_release $RELEASE" \
+    --define "altlinux $ALT_RPM" \
     --define "bundle_dir $BUNDLE_DIR" \
     --define "project_root $PROJECT_ROOT" \
     --target "$ARCHITECTURE" \
