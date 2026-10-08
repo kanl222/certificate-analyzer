@@ -146,34 +146,28 @@ class PushNotificationManager:
         return True
 
     def check_and_notify_expired(self, expired_count: int, warning_count: int, total_count: int) -> bool:
-        """Проверяет сертификаты и отправляет сводное уведомление при наличии проблем."""
+        """Send expired/expiring messages independently with separate rate limits."""
         now = time.monotonic()
-        if (
-            now - self.last_notification_time.get("expired", float("-inf"))
-            < self.notification_interval
+        sent_any = False
+        for category, count, title, label, kind in (
+            ("expired", expired_count, "Срок действия сертификатов истёк", "Просрочено", NotificationType.ERROR.value),
+            ("expiring", warning_count, "Срок действия сертификатов скоро истечёт", "Истекает", NotificationType.WARNING.value),
         ):
-            return False
-        if not (expired_count or warning_count):
-            return False
-
-        if expired_count > 0:
-            n_type = NotificationType.ERROR.value
-        elif warning_count > 0:
-            n_type = NotificationType.WARNING.value
-        else:
-            n_type = NotificationType.INFO.value
-
-        sent = self.send_notification(
-            title="Срок действия сертификатов",
-            message=f"Просрочено: {expired_count}. Истекает: {warning_count}. Всего: {total_count}.",
-            notification_type=n_type,
-            expired_count=expired_count,
-            warning_count=warning_count,
-            total_count=total_count,
-        )
-        if sent:
-            self.last_notification_time["expired"] = now
-        return sent
+            if count <= 0 or now - self.last_notification_time.get(category, float("-inf")) < self.notification_interval:
+                continue
+            try:
+                sent = self.send_notification(
+                    title=title, message=f"{label}: {count}. Всего сертификатов: {total_count}.",
+                    notification_type=kind, expired_count=expired_count,
+                    warning_count=warning_count, total_count=total_count,
+                )
+            except Exception:
+                logging.getLogger(__name__).exception("Не удалось отправить уведомление категории %s", category)
+                continue
+            if sent:
+                self.last_notification_time[category] = now
+                sent_any = True
+        return sent_any
 
     def start_background_monitoring(self, callback, interval_seconds: int = 3600) -> None:
         """Запускает фоновый поток мониторинга с заданным интервалом в секундах."""

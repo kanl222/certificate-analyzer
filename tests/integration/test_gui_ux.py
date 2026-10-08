@@ -33,6 +33,73 @@ def _descendants(widget):
         yield from _descendants(child)
 
 
+def _fully_visible(widget, window):
+    window.update_idletasks()
+    assert widget.winfo_ismapped()
+    assert widget.winfo_height() >= widget.winfo_reqheight()
+    assert widget.winfo_rooty() + widget.winfo_height() <= window.winfo_rooty() + window.winfo_height()
+
+
+def test_normative_bottom_buttons_visible_at_open_and_resize(tk_root):
+    from certificate_analyzer.presentation.gui.views.normative_view import NormativeWindow
+    view = NormativeWindow(tk_root)
+    try:
+        for height in (590, 420):
+            view.window.geometry(f"940x{height}")
+            view.window.update()
+            for button in (view.add_btn, view.copy_btn, view.open_btn):
+                _fully_visible(button, view.window)
+    finally:
+        view._on_close()
+
+
+def test_main_status_and_paging_visible_at_small_height(application, tk_root):
+    from certificate_analyzer.presentation.gui.main_window import CertificateAnalyzerApp
+    window = tk.Toplevel(tk_root)
+    view = CertificateAnalyzerApp(window, application=application)
+    try:
+        window.geometry("1100x650")
+        window.update()
+        _fully_visible(view.message, window)
+        _fully_visible(view.certs_tab.previous_button, window)
+        _fully_visible(view.certs_tab.next_button, window)
+    finally:
+        view.close()
+
+
+def test_edit_menu_tracks_active_tab_and_dispatches_actions(application, tk_root, monkeypatch):
+    from unittest.mock import Mock
+    from certificate_analyzer.presentation.gui.main_window import CertificateAnalyzerApp
+    window = tk.Toplevel(tk_root)
+    view = CertificateAnalyzerApp(window, application=application)
+    try:
+        for tab, expected, forbidden in (
+            (view.certs_tab, "Открыть сертификат", "Удалить заявку"),
+            (view.requests_tab, "Изменить статус…", "Открыть сертификат"),
+            (view.employees_tab, "Изменить сотрудника…", "Удалить физический файл (в корзину)..."),
+            (view.mchd_tab, "Открыть XML МЧД", "Открыть сертификат"),
+        ):
+            view.notebook.select(tab)
+            window.update()
+            view.menu_bar.update_edit_menu()
+            menu = view.menu_bar.edit_menu
+            labels = [menu.entrycget(index, "label") for index in range(menu.index("end") + 1) if menu.type(index) == "command"]
+            assert expected in labels
+            assert forbidden not in labels
+        change_status = Mock()
+        monkeypatch.setattr(view.requests_view, "show_status_dialog", change_status)
+        view.notebook.select(view.requests_tab)
+        view.menu_bar.update_edit_menu()
+        view.menu_bar.edit_menu.invoke(3)
+        change_status.assert_called_once()
+        delete_file = Mock()
+        monkeypatch.setattr(view, "delete_physical_file", delete_file)
+        view.menu_bar._delete_certificate_file(type("Event", (), {"widget": view.requests_view.tree})())
+        delete_file.assert_not_called()
+    finally:
+        view.close()
+
+
 @pytest.fixture(scope="module")
 def shared_tk_root():
     root = tk.Tk()

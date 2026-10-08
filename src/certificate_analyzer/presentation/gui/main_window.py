@@ -85,8 +85,8 @@ class CertificateAnalyzerApp:
         """Выбирает удобный стартовый размер с учётом разрешения экрана."""
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
-        available_width = max(760, screen_width - 40)
-        available_height = max(560, screen_height - 80)
+        available_width = max(1, screen_width - 40)
+        available_height = max(1, screen_height - 100)
         width = min(1440, max(1000, int(screen_width * 0.8)), available_width)
         height = min(900, max(680, int(screen_height * 0.82)), available_height)
         x = max(0, (screen_width - width) // 2)
@@ -103,10 +103,12 @@ class CertificateAnalyzerApp:
         configure_gui_styles(self.root)
         frame = ttk.Frame(self.root, padding=12, style="App.TFrame")
         frame.pack(fill="both", expand=True)
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(0, weight=1)
 
         # Контейнер вкладок
         self.notebook = ttk.Notebook(frame)
-        self.notebook.pack(fill="both", expand=True)
+        self.notebook.grid(row=0, column=0, sticky="nsew")
         self.notebook.enable_traversal()
 
         # Вкладка 1: Сертификаты
@@ -156,7 +158,7 @@ class CertificateAnalyzerApp:
 
         # Статусная строка и компактный индикатор фоновых операций
         status_bar = ttk.Frame(frame, style="Status.TFrame", padding=(8, 5))
-        status_bar.pack(fill="x", pady=(4, 0))
+        status_bar.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         self.message = ttk.Label(status_bar, text="Загрузка…", style="Status.TLabel")
         self.message.pack(side="left")
         self.progress = ttk.Progressbar(
@@ -368,6 +370,14 @@ class CertificateAnalyzerApp:
             finished=finished,
             post_refresh=self._refresh_active_tab,
         )
+
+    def export_archive(self):
+        from certificate_analyzer.presentation.gui.views.archive_view import ExportArchiveWizard
+        self._submit(self.app.archive.export_choices, lambda records: ExportArchiveWizard(self, records))
+
+    def import_archive(self):
+        from certificate_analyzer.presentation.gui.views.archive_view import ArchiveDialog
+        ArchiveDialog(self, importing=True)
 
     def _import_finished(self, result: Any) -> None:
         """Отображает результат импорта сертификатов.

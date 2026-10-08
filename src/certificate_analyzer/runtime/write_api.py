@@ -22,6 +22,7 @@ TYPES = {cls.__name__: cls for cls in (
     Employee, MchdDocument, CertificateStatus, CertificateRequestStatus, MchdStatus,
 )}
 COMMANDS = {
+    "archive": {"export", "export_choices", "inspect", "restore"},
     "certificates": {"import_files", "import_folder", "load_phonebook", "delete_records", "delete_file"},
     "employees": {"save_employee", "get_or_create", "delete_employee"},
     "certificate_requests": {"create_request", "update_status", "link_certificate", "delete_request"},

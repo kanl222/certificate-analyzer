@@ -68,6 +68,7 @@ class ApplicationContainer:
     certificate_files: CertificateFileRepository | None = None
     monitoring: MonitoringService | None = None
     mchd_repository: MchdRepository | None = None
+    archive: object | None = None
 
     def close(self) -> None:
         """Освобождает занятые ресурсы и закрывает соединение с базой данных."""
@@ -148,6 +149,8 @@ def create_application(config_path=None, *, settings=None, read_only=False) -> A
             monitoring=monitoring_service,
             mchd_repository=mchd_repo,
         )
+        from certificate_analyzer.application.services.archive_service import ArchiveService
+        application.archive = ArchiveService(application)
         if read_only:
             from certificate_analyzer.runtime.write_api import configure_client
             configure_client(application)

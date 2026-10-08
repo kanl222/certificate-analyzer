@@ -86,6 +86,19 @@ def test_import_and_audit_through_ipc(writer, certificate_file):
         assert gui.certificates.statistics()["total"] == 0
 
 
+def test_archive_export_restore_in_real_daemon(writer, certificate_file, tmp_path):
+    settings, _, _ = writer
+    with create_application(settings=settings, read_only=True) as gui:
+        assert gui.certificates.import_files([certificate_file()]).imported == 1
+        archive = tmp_path / "through-ipc.cat"
+        assert gui.archive.export(archive, "long-secret-password")["path"] == str(archive)
+        preview = gui.archive.inspect(archive, "long-secret-password")
+        gui.archive.restore(archive, "long-secret-password", "replace", {}, preview["digest"])
+        assert gui.certificates.statistics()["total"] == 1
+        with gui.database.engine.connect() as connection:
+            assert connection.exec_driver_sql("PRAGMA query_only").scalar() == 1
+
+
 def test_unavailable_does_not_fall_back_to_gui_write(writer):
     settings, process, client = writer
     with create_application(settings=settings, read_only=True) as gui:

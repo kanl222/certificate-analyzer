@@ -51,26 +51,7 @@ def _add_entry_context_menu(widget: tk.Widget) -> None:
 
     widget.bind("<Button-3>", show_menu)
 
-    def fix_cyrillic(e: tk.Event):
-        if getattr(e, "state", 0) & 4 and hasattr(e, "keysym"):
-            sym = str(e.keysym).lower()
-            if sym in ("cyrillic_em", "v", "м", "cyrillic_m"):
-                widget.event_generate("<<Paste>>")
-                return "break"
-            elif sym in ("cyrillic_es", "c", "с", "cyrillic_s"):
-                widget.event_generate("<<Copy>>")
-                return "break"
-            elif sym in ("cyrillic_che", "x", "ч", "cyrillic_ch"):
-                widget.event_generate("<<Cut>>")
-                return "break"
-            elif sym in ("cyrillic_ef", "a", "ф", "cyrillic_f"):
-                if hasattr(widget, "select_range"):
-                    widget.select_range(0, "end")
-                if hasattr(widget, "icursor"):
-                    widget.icursor("end")
-                return "break"
-
-    widget.bind("<Key>", fix_cyrillic, add="+")
+    # Keyboard handling is shared through Tk class bindings, including dialogs.
 
 
 class EmployeePickerDialog(tk.Toplevel):

@@ -1,6 +1,7 @@
 """Аддитивные миграции схемы базы данных SQLite."""
 
 import json
+from contextlib import closing
 from pathlib import Path
 import sqlite3
 from datetime import datetime, timezone
@@ -19,7 +20,10 @@ def migrate(engine, path):
     Raises:
         ValueError: Если версия базы данных новее версии приложения.
     """
+    path = Path(path)
     with engine.connect() as connection:
+        if connection.exec_driver_sql("PRAGMA integrity_check").all() != [("ok",)]:
+            raise ValueError("База повреждена; миграция отменена")
         version = connection.exec_driver_sql("PRAGMA user_version").scalar() or 0
         if version > SCHEMA_VERSION:
             raise ValueError("Версия базы новее приложения")
@@ -31,18 +35,20 @@ def migrate(engine, path):
             ).scalars()
         )
 
-    if "certificates" in tables:
+    if tables:
         backup = path.with_name(
             path.name + datetime.now(timezone.utc).strftime(".%Y%m%d%H%M%S%f.bak")
         )
         # SQLite backup API копирует консистентный снимок данных, включая журнал WAL
-        with sqlite3.connect(path) as source, sqlite3.connect(backup) as destination:
+        with closing(sqlite3.connect(path)) as source, closing(sqlite3.connect(backup)) as destination:
             source.backup(destination)
 
     with engine.connect() as connection:
         connection.exec_driver_sql("BEGIN IMMEDIATE")
         try:
             current_version = connection.exec_driver_sql("PRAGMA user_version").scalar() or 0
+            if current_version > SCHEMA_VERSION:
+                raise ValueError("Версия базы новее приложения")
             if current_version == SCHEMA_VERSION:
                 connection.commit()
                 return
@@ -207,6 +213,8 @@ def migrate(engine, path):
                         "ALTER TABLE employees ADD COLUMN is_management BOOLEAN NOT NULL DEFAULT 0"
                     )
 
+            if connection.exec_driver_sql("PRAGMA integrity_check").all() != [("ok",)]:
+                raise ValueError("Проверка целостности после миграции не пройдена")
             connection.exec_driver_sql(f"PRAGMA user_version={SCHEMA_VERSION}")
             connection.commit()
         except Exception:

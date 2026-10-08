@@ -49,6 +49,8 @@ CAL_TODAY_FG = "#FFFFFF"
 
 def configure_gui_styles(root) -> None:
     """Настраивает единый внешний вид основных панелей приложения."""
+    from certificate_analyzer.presentation.gui.clipboard_shortcuts import install_clipboard_shortcuts
+    install_clipboard_shortcuts(root)
     style = ttk.Style(root)
     root.configure(background=BG_COLOR)
 

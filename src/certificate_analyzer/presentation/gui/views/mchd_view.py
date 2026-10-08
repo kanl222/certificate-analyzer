@@ -735,18 +735,27 @@ class MchdView(ttk.Frame):
             ("issuer_org_name", "Доверитель"),
             ("issue_date", "Дата выдачи"),
             ("expiry_date", "Действует до"),
-            ("file_name", "Файл"),
         )
         properties = ttk.Frame(details_frame, style="Status.TFrame")
         properties.pack(fill=tk.X)
         properties.columnconfigure(1, weight=1)
+        self._detail_titles = dict(property_labels)
+        self._detail_rows = {}
+        self._selected_detail = None
+        ttk.Style(self).configure("Selected.Card.TLabel", background="#DCEAFF", foreground="#183153")
+        self._detail_copy_menu = tk.Menu(self, tearoff=0)
+        self._detail_copy_menu.add_command(label="Копировать значение")
+        self._detail_copy_menu.add_command(label="Копировать строку")
+        self._detail_copy_menu.add_separator()
+        self._detail_copy_menu.add_command(label="Копировать карточку", command=self._copy_detail_card)
         for row, (key, title) in enumerate(property_labels):
-            ttk.Label(
+            title_widget = ttk.Label(
                 properties,
                 text=f"{title}:",
                 font=(UI_FONT, 9, "bold"),
                 style="Panel.TLabel",
-            ).grid(row=row, column=0, sticky=tk.NW, padx=(0, 8), pady=3)
+            )
+            title_widget.grid(row=row, column=0, sticky="nsew", padx=(0, 8), pady=3)
             value = ttk.Label(
                 properties,
                 text="—",
@@ -754,8 +763,13 @@ class MchdView(ttk.Frame):
                 wraplength=230,
                 justify=tk.LEFT,
             )
-            value.grid(row=row, column=1, sticky=tk.EW, pady=3)
+            value.grid(row=row, column=1, sticky="nsew", pady=3)
             self.mchd_detail_fields[key] = value
+            self._detail_rows[key] = (title_widget, value)
+            for widget in (title_widget, value):
+                widget.bind("<Button-1>", lambda event, key=key: self._select_detail(key))
+                widget.bind("<Button-3>", lambda event, key=key: self._show_detail_copy_menu(event, key))
+            value.bind("<Double-Button-1>", lambda event, key=key: self._copy_detail(key))
 
         ttk.Separator(details_frame).pack(fill=tk.X, pady=10)
         ttk.Label(
@@ -846,6 +860,32 @@ class MchdView(ttk.Frame):
         self.person_info_label.config(wraplength=max(180, event.width - 24))
         for label in self.mchd_detail_fields.values():
             label.config(wraplength=wraplength)
+
+    def _select_detail(self, key):
+        if self._selected_detail is not None:
+            for widget in self._detail_rows[self._selected_detail]:
+                widget.configure(style="Panel.TLabel")
+        self._selected_detail = key
+        for widget in self._detail_rows[key]:
+            widget.configure(style="Selected.Card.TLabel")
+
+    def _copy_detail(self, key, include_label=False):
+        text = str(self.mchd_detail_fields[key].cget("text"))
+        self.clipboard_clear()
+        self.clipboard_append(f"{self._detail_titles[key]}: {text}" if include_label else text)
+
+    def _copy_detail_card(self):
+        self.clipboard_clear()
+        self.clipboard_append("\n".join(f"{self._detail_titles[key]}: {widget.cget('text')}" for key, widget in self.mchd_detail_fields.items()))
+
+    def _show_detail_copy_menu(self, event, key):
+        self._select_detail(key)
+        self._detail_copy_menu.entryconfigure(0, command=lambda: self._copy_detail(key))
+        self._detail_copy_menu.entryconfigure(1, command=lambda: self._copy_detail(key, True))
+        try:
+            self._detail_copy_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self._detail_copy_menu.grab_release()
 
     def refresh(self) -> None:
         """Перечитывает данные МЧД из базы данных и обновляет таблицу."""

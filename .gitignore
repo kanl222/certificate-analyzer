@@ -25,6 +25,13 @@ packaging/linux/output/
 .sqlcipher-test-runtime/
 .sqlcipher-tests/
 .rpm-test-tmp*/
+.upgrade-test-*/
+.archive-ui-test*/
+.archive-wizard-test*/
+.settings-test-*/
+.notification-test-*/
+.layout-test-*/
+.clipboard-test-*/
 scratch/*
 *.db
 MEMORY.md

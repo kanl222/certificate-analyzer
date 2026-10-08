@@ -149,8 +149,10 @@ class NormativeWindow:
     def _create_window(self):
         self.window = tk.Toplevel(self.parent)
         self.window.title("Нормативные документы")
-        self.window.geometry("940x590")
-        self.window.minsize(680, 420)
+        width = min(940, max(1, self.window.winfo_screenwidth() - 40))
+        height = min(590, max(1, self.window.winfo_screenheight() - 100))
+        self.window.geometry(f"{width}x{height}")
+        self.window.minsize(min(680, width), min(420, height))
         self.window.configure(bg=BG_COLOR)
 
         self.setup_ui()
@@ -166,10 +168,12 @@ class NormativeWindow:
     def setup_ui(self):
         main_frame = ttk.Frame(self.window, padding=15)
         main_frame.pack(fill=tk.BOTH, expand=True)
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(2, weight=1)
 
         # Заголовок окна
         header_frame = ttk.Frame(main_frame)
-        header_frame.pack(fill=tk.X, pady=(0, 10))
+        header_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
 
         ttk.Label(
             header_frame,
@@ -188,7 +192,7 @@ class NormativeWindow:
 
         # Панель поиска, фильтрации и добавления
         filter_frame = ttk.Frame(main_frame)
-        filter_frame.pack(fill=tk.X, pady=(0, 10))
+        filter_frame.grid(row=1, column=0, sticky="ew", pady=(0, 10))
 
         ttk.Label(filter_frame, text="Поиск:").pack(side=tk.LEFT, padx=(0, 5))
         self.search_var = tk.StringVar()
@@ -218,7 +222,7 @@ class NormativeWindow:
 
         # Таблица-список документов
         table_frame = ttk.Frame(main_frame)
-        table_frame.pack(fill=tk.BOTH, expand=True)
+        table_frame.grid(row=2, column=0, sticky="nsew")
 
         self.tree = ttk.Treeview(
             table_frame,
@@ -252,7 +256,7 @@ class NormativeWindow:
         details_frame = ttk.LabelFrame(
             main_frame, text="Информация о документе", padding=8
         )
-        details_frame.pack(fill=tk.X, pady=(10, 5))
+        details_frame.grid(row=3, column=0, sticky="ew", pady=(10, 5))
 
         self.selected_title_var = tk.StringVar(value="Выберите документ из списка выше")
         self.selected_desc_var = tk.StringVar(value="")
@@ -286,7 +290,7 @@ class NormativeWindow:
 
         # Нижняя панель с кнопками и подсказкой
         bottom_frame = ttk.Frame(main_frame)
-        bottom_frame.pack(fill=tk.X, pady=(8, 0))
+        bottom_frame.grid(row=4, column=0, sticky="ew", pady=(8, 0))
 
   
         self.status_msg = ttk.Label(

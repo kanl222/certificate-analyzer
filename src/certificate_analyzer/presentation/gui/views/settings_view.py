@@ -59,8 +59,11 @@ class SettingsDialog(tk.Toplevel):
                 ("mchd_folder", "Папка МЧД", self.app.settings.mchd_folder, "directory"),
                 ("phonebook_path", "Телефонный справочник", self.app.settings.phonebook_path or "", "phonebook"),
             ],
+            "Сертификаты": [
+                ("warning_days", "Считать истекающим за, дней", str(self.app.settings.warning_days), "days"),
+            ],
             "Мониторинг": [
-                ("warning_days", "Предупреждать за дней", str(self.app.settings.warning_days), None),
+                ("warning_days", "Уведомлять за, дней", str(self.app.settings.warning_days), "days"),
                 ("check_interval", "Интервал проверки, секунд", str(self.app.settings.check_interval), None),
             ],
             "Отчёты": [
@@ -72,17 +75,22 @@ class SettingsDialog(tk.Toplevel):
             tab.columnconfigure(1, weight=1)
             self.notebook.add(tab, text=title)
             for row, (key, label, value, browse_kind) in enumerate(values):
-                variable = tk.StringVar(value=value)
-                self.fields[key] = variable
+                variable = self.fields.get(key)
+                if variable is None:
+                    variable = tk.StringVar(value=value)
+                    self.fields[key] = variable
                 self._add_field(tab, row, label, variable, browse_kind)
             if title == "Импорт":
                 for row, (name, folder) in enumerate(self.app.settings.folders.items(), start=len(values)):
                     variable = tk.StringVar(value=folder)
                     self.folder_fields[name] = variable
                     self._add_field(tab, row, f"Сертификаты: {name}", variable, "directory")
-            if title == "Мониторинг":
-                ttk.Label(tab, text="Управление фоновым процессом и автозапуском доступно в меню «Служба».",
+            if title == "Сертификаты":
+                ttk.Label(tab, text="Например, 30: статус «Истекает» появится, когда до окончания действия останется 30 дней или меньше.\n0 — не выделять сертификаты заранее. Порог используется и для уведомлений.",
                           wraplength=600).grid(row=len(values), column=0, columnspan=3, sticky="w", pady=12)
+            if title == "Мониторинг":
+                ttk.Label(tab, text="Порог дней общий с вкладкой «Сертификаты».\nУправление фоновым процессом и автозапуском доступно в меню «Служба».",
+                          wraplength=600).grid(row=len(values), column=0, columnspan=3, sticky="w", pady=6)
 
         ttk.Label(frame,
                   text="После сохранения перезапустите приложение и фоновый процесс. Существующие файлы автоматически не перемещаются.",
@@ -94,8 +102,11 @@ class SettingsDialog(tk.Toplevel):
 
     def _add_field(self, tab, row, label, variable, browse_kind):
         ttk.Label(tab, text=label).grid(row=row, column=0, sticky="w", pady=6)
-        ttk.Entry(tab, textvariable=variable, width=48).grid(row=row, column=1, sticky="ew", padx=10)
-        if browse_kind:
+        if browse_kind == "days":
+            ttk.Spinbox(tab, from_=0, to=3650, increment=1, textvariable=variable, width=12).grid(row=row, column=1, sticky="w", padx=10)
+        else:
+            ttk.Entry(tab, textvariable=variable, width=48).grid(row=row, column=1, sticky="ew", padx=10)
+        if browse_kind and browse_kind != "days":
             ttk.Button(tab, text="Обзор…", command=lambda: self._browse(variable, browse_kind)).grid(row=row, column=2)
 
     def _browse(self, variable, kind):
@@ -120,6 +131,12 @@ class SettingsDialog(tk.Toplevel):
             None (ошибки валидации отображаются пользователю через messagebox).
         """
         try:
+            try:
+                warning_days = int(self.fields["warning_days"].get())
+            except ValueError:
+                raise ValueError("Порог истечения должен быть целым числом дней") from None
+            if warning_days < 0:
+                raise ValueError("Порог истечения не может быть отрицательным")
             settings = replace(
                 self.app.settings,
                 **{

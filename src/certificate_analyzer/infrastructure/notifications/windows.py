@@ -46,6 +46,8 @@ class WindowsToastNotifier(NotificationBackend):
             return
 
         try:
-            self._toaster.show_toast(title, message, duration=10, threaded=True)
+            # win10toast drops a threaded notification while another is active.
+            # The daemon already sends from its background monitoring thread.
+            self._toaster.show_toast(title, message, duration=10, threaded=False)
         except Exception as e:
             logger.error("Ошибка отправки Toast уведомления: %s", e)

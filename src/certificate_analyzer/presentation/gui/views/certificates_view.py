@@ -202,13 +202,16 @@ class CertificatesView(ttk.Frame):
         )
         content.add(list_panel, weight=4)
         content.add(properties_panel, weight=1)
+        for panel in (list_panel, properties_panel):
+            panel.columnconfigure(0, weight=1)
+            panel.rowconfigure(0, weight=1)
         self.content_pane = content
         self._last_layout_width = 0
         self._pane_layout_after: str | None = None
         self.bind("<Configure>", self._resize_content_pane, add="+")
 
         table = ttk.Frame(list_panel)
-        table.pack(fill="both", expand=True)
+        table.grid(row=0, column=0, sticky="nsew")
 
         self.tree = ttk.Treeview(
             table, columns=list(COLUMNS), show="headings", selectmode="extended"
@@ -271,7 +274,7 @@ class CertificatesView(ttk.Frame):
 
         # Панель пагинации
         paging = ttk.Frame(list_panel, style="Panel.TFrame", padding=(8, 6))
-        paging.pack(fill="x", pady=(8, 0))
+        paging.grid(row=1, column=0, sticky="ew", pady=(8, 0))
 
         self.previous_button = ttk.Button(
             paging,
@@ -294,10 +297,10 @@ class CertificatesView(ttk.Frame):
 
         # Панель свойств и быстрых действий
         self.details = CertificateDetails(properties_panel)
-        self.details.pack(fill="both", expand=True)
+        self.details.grid(row=0, column=0, sticky="nsew")
 
         actions = ttk.Frame(properties_panel, style="Panel.TFrame")
-        actions.pack(fill="x", pady=(8, 0))
+        actions.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         open_button = ttk.Button(
             actions,
             text="Открыть файл",

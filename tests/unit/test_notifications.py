@@ -14,6 +14,23 @@ from certificate_analyzer.infrastructure.notifications.composite import (
 )
 
 
+def test_expired_and_expiring_have_independent_notifications_and_intervals():
+    backend = MagicMock()
+    manager = PushNotificationManager(backend=backend)
+    assert manager.check_and_notify_expired(2, 1, 10)
+    assert backend.send.call_count == 2
+    messages = [call.kwargs for call in backend.send.call_args_list]
+    assert messages[0]["notification_type"] == "error"
+    assert messages[1]["notification_type"] == "warning"
+    assert "Истекает:" not in messages[0]["message"]
+    assert "Просрочено:" not in messages[1]["message"]
+    assert not manager.check_and_notify_expired(2, 1, 10)
+    fresh = PushNotificationManager(backend=MagicMock())
+    assert fresh.check_and_notify_expired(1, 0, 10)
+    assert fresh.check_and_notify_expired(1, 2, 10)
+    assert fresh.backend.send.call_count == 2
+
+
 @pytest.mark.parametrize("backend_kind", ["windows", "linux", "logging"])
 def test_desktop_backend_accepts_manager_metadata(backend_kind, monkeypatch, caplog):
     from certificate_analyzer.infrastructure.notifications.windows import WindowsToastNotifier
@@ -37,7 +54,7 @@ def test_desktop_backend_accepts_manager_metadata(backend_kind, monkeypatch, cap
     assert manager.check_and_notify_expired(2, 1, 10)
     assert "unexpected keyword argument" not in caplog.text
     if backend_kind != "logging":
-        delivered.assert_called_once()
+        assert delivered.call_count == 2
     else:
         assert "Просрочено: 2" in caplog.text
     assert api.history[0]["payload"]["metadata"]["expired_count"] == 2
@@ -143,13 +160,14 @@ def test_push_notification_manager_check_and_notify_expired():
     # With expired certificates
     sent_expired = manager.check_and_notify_expired(2, 1, 10)
     assert sent_expired is True
-    assert len(api_backend.history) == 1
+    assert len(api_backend.history) == 2
 
     last = api_backend.history[0]["payload"]
     assert last["type"] == "error"
     assert "Просрочено: 2" in last["message"]
     assert last["metadata"]["expired_count"] == 2
     assert last["metadata"]["warning_count"] == 1
+    assert api_backend.history[1]["payload"]["type"] == "warning"
 
 
 def test_push_notification_manager_configure_api():

@@ -63,6 +63,7 @@ class AppMenuBar:
             command=self.handler.import_phonebook,
         )
         file_menu.add_cascade(label="Импорт", menu=import_menu)
+        import_menu.add_command(label="Импорт защищённого архива…", command=self.handler.import_archive)
 
         export_menu = tk.Menu(file_menu, tearoff=0)
         export_menu.add_command(
@@ -71,6 +72,7 @@ class AppMenuBar:
             accelerator="Ctrl+E",
         )
         file_menu.add_cascade(label="Экспорт", menu=export_menu)
+        export_menu.add_command(label="Экспорт защищённого архива…", command=self.handler.export_archive)
 
         file_menu.add_separator()
         file_menu.add_command(
@@ -92,13 +94,40 @@ class AppMenuBar:
         Returns:
             None
         """
-        edit_menu = tk.Menu(self.menubar, tearoff=0)
+        edit_menu = tk.Menu(self.menubar, tearoff=0, postcommand=self.update_edit_menu)
+        self.edit_menu = edit_menu
+        self.menubar.add_cascade(label="Правка", menu=edit_menu)
+        self.update_edit_menu()
+
+    def update_edit_menu(self):
+        edit_menu = self.edit_menu
+        edit_menu.delete(0, "end")
         edit_menu.add_command(
             label="Обновить записи",
-            command=self.handler.refresh,
+            command=self.handler._refresh_active_tab,
             accelerator="F5",
         )
         edit_menu.add_separator()
+        active = self.handler.notebook.select()
+        if active == str(self.handler.requests_tab):
+            view = self.handler.requests_view
+            actions = (("Создать заявку…", view.show_create_dialog), ("Изменить статус…", view.show_status_dialog),
+                       ("Привязать сертификат…", view.show_link_dialog), ("Отметить обработанной", view.mark_processed),
+                       ("Удалить заявку", view.delete_selected))
+        elif active == str(self.handler.employees_tab):
+            view = self.handler.employees_view
+            actions = (("Добавить сотрудника…", view.show_create_dialog), ("Изменить сотрудника…", view.edit_selected),
+                       ("Создать заявку для сотрудника…", view.create_request_for_selected), ("Удалить сотрудника", view.delete_selected))
+        elif active == str(self.handler.mchd_tab):
+            view = self.handler.mchd_view
+            actions = (("Открыть XML МЧД", view.open_xml_file), ("Просмотреть данные…", view.view_personal_data),
+                       ("Просмотреть полномочия…", view.view_merged_authorities), ("Удалить МЧД", view.delete_selected))
+        else:
+            actions = None
+        if actions is not None:
+            for label, command in actions:
+                edit_menu.add_command(label=label, command=command)
+            return
         edit_menu.add_command(
             label="Открыть сертификат",
             command=self.handler.open_certificate,
@@ -118,7 +147,6 @@ class AppMenuBar:
             command=self.handler.delete_physical_file,
             accelerator="Shift+Delete",
         )
-        self.menubar.add_cascade(label="Правка", menu=edit_menu)
 
     def _build_view_menu(self) -> None:
         """Создает выпадающее меню «Вид» с фильтром по статусу и переключением вкладок.
@@ -274,7 +302,7 @@ class AppMenuBar:
         self.root.bind("<Control-O>", lambda _: self.handler.import_files())
         self.root.bind("<Control-e>", lambda _: self.handler.export_report())
         self.root.bind("<Control-E>", lambda _: self.handler.export_report())
-        self.root.bind("<F5>", lambda _: self.handler.refresh())
+        self.root.bind("<F5>", lambda _: self.handler._refresh_active_tab())
         self.root.bind("<Control-Key-1>", lambda _: self.handler.show_certificates_tab())
         self.root.bind("<Control-Key-2>", lambda _: self.handler.show_requests_tab())
         self.root.bind("<Control-Key-3>", lambda _: self.handler.show_employees_tab())
@@ -285,4 +313,9 @@ class AppMenuBar:
         self.root.bind(
             "<Control-N>", lambda _: self.handler.create_certificate_request()
         )
-        self.root.bind("<Shift-Delete>", lambda _: self.handler.delete_physical_file())
+        self.root.bind("<Shift-Delete>", self._delete_certificate_file)
+
+    def _delete_certificate_file(self, event):
+        if self.handler.notebook.select() == str(self.handler.certs_tab) and event.widget.winfo_class() == "Treeview":
+            self.handler.delete_physical_file()
+            return "break"

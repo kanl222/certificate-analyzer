@@ -20,6 +20,18 @@ HEADER = b"CATRANSFER\x01"
 MAX_SIZE = 128 * 1024 * 1024
 MAX_FILES = 10000
 PATH_FIELDS = (("certificates", "source_path"), ("certificate_sources", "path"), ("mchds", "source_path"))
+CATEGORIES = {"certificates", "employees", "requests", "mchds", "audit", "history"}
+
+
+def selected_categories(categories=None):
+    selected = set(CATEGORIES if categories is None else categories)
+    if not selected or not selected <= CATEGORIES:
+        raise ArchiveError("Выберите допустимые категории данных")
+    if "requests" in selected:
+        selected.update({"certificates", "employees"})
+    if "certificates" in selected:
+        selected.add("employees")
+    return selected
 
 
 class ArchiveError(ValueError):
@@ -42,28 +54,33 @@ def _read(path: Path) -> bytes:
     return data
 
 
-def _validate_db(connection):
+def _validate_db(connection, *, allow_older=False):
     if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
         raise ArchiveError("База данных повреждена")
-    if connection.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+    version = connection.execute("PRAGMA user_version").fetchone()[0]
+    if version > SCHEMA_VERSION:
+        raise ArchiveError("Версия базы новее приложения; обновите программу")
+    if version != SCHEMA_VERSION and not allow_older:
         raise ArchiveError("Для переноса нужна база текущей версии приложения")
     tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    if not {table for table, _ in PATH_FIELDS} <= tables:
+    required = {"certificates"} if allow_older else {table for table, _ in PATH_FIELDS}
+    if not required <= tables:
         raise ArchiveError("Архив не содержит базу Certificate Analyzer")
     if connection.execute("SELECT 1 FROM sqlite_master WHERE type='trigger' LIMIT 1").fetchone():
         raise ArchiveError("База с триггерами не поддерживается")
 
 
-def export_archive(database: Path, storage: Path, destination: Path, password: str) -> Path:
+def export_archive(database: Path, storage: Path, destination: Path, password: str, *, categories=None, notification_history=None, record_ids=None, _writer_owned=False) -> Path:
     """Export a SQLite backup and all managed/referenced files. Stop writer first."""
     database, storage, destination = Path(database).resolve(), Path(storage).resolve(), Path(destination)
-    if database.with_suffix(database.suffix + ".ipc-token").exists():
+    selected = selected_categories(categories)
+    if not _writer_owned and database.with_suffix(database.suffix + ".ipc-token").exists():
         raise ArchiveError("Перед экспортом остановите фоновый процесс")
     if destination.exists():
         raise ArchiveError("Файл архива уже существует")
     salt, nonce = os.urandom(16), os.urandom(12)
     key = _key(password, salt)
-    with tempfile.TemporaryDirectory(prefix="ca-export-") as temp:
+    with tempfile.TemporaryDirectory(prefix="ca-export-", dir=destination.absolute().parent) as temp:
         snapshot = Path(temp) / "certificates.db"
         with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)) as source:
             with closing(sqlite3.connect(snapshot)) as backup:
@@ -91,7 +108,7 @@ def export_archive(database: Path, storage: Path, destination: Path, password: s
                 paths[str(path)] = name
             return paths[str(path)]
 
-        if storage.exists():
+        if record_ids is None and "certificates" in selected and storage.exists():
             for path in sorted(storage.rglob("*")):
                 if path.is_symlink():
                     raise ArchiveError(f"Ссылки в хранилище не поддерживаются: {path}")
@@ -100,6 +117,33 @@ def export_archive(database: Path, storage: Path, destination: Path, password: s
         mappings = {}
         with closing(sqlite3.connect(snapshot)) as connection:
             _validate_db(connection)
+            connection.execute("PRAGMA secure_delete=ON")
+            groups = {"requests": ("certificate_requests",), "certificates": ("certificate_sources", "certificates"), "employees": ("employees",), "mchds": ("mchd_authorities", "mchds"), "audit": ("audit_events",)}
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if record_ids is not None:
+                if not isinstance(record_ids, dict) or set(record_ids) - {"certificates", "employees", "mchds"}:
+                    raise ArchiveError("Некорректный выбор записей")
+                for table, field in (("certificates", "fingerprint_sha256"), ("employees", "id"), ("mchds", "unified_number")):
+                    identifiers = record_ids.get(table, [])
+                    if not isinstance(identifiers, list) or not all(isinstance(value, (str, int)) for value in identifiers):
+                        raise ArchiveError("Некорректные идентификаторы записей")
+                    connection.execute("CREATE TEMP TABLE selection(value TEXT PRIMARY KEY)")
+                    connection.executemany("INSERT OR IGNORE INTO selection VALUES (?)", [(str(value),) for value in identifiers])
+                    if connection.execute(f'SELECT value FROM selection WHERE value NOT IN (SELECT CAST("{field}" AS TEXT) FROM "{table}") LIMIT 1').fetchone():
+                        raise ArchiveError("Выбранная запись удалена; обновите список экспорта")
+                    if table == "employees":
+                        connection.execute("INSERT OR IGNORE INTO selection SELECT CAST(employee_id AS TEXT) FROM certificates WHERE employee_id IS NOT NULL")
+                    connection.execute(f'DELETE FROM "{table}" WHERE CAST("{field}" AS TEXT) NOT IN (SELECT value FROM selection)')
+                    connection.execute("DROP TABLE selection")
+                connection.execute("DELETE FROM certificate_sources WHERE fingerprint NOT IN (SELECT fingerprint_sha256 FROM certificates)")
+                connection.execute("DELETE FROM mchd_authorities WHERE mchd_number NOT IN (SELECT unified_number FROM mchds)")
+            for category, group in groups.items():
+                if category not in selected:
+                    for table in group:
+                        if table in tables:
+                            connection.execute(f'DELETE FROM "{table}"')
+            connection.commit()
+            connection.execute("VACUUM")
             for table, column in PATH_FIELDS:
                 for (old,) in connection.execute(f'SELECT DISTINCT "{column}" FROM "{table}" WHERE "{column}" IS NOT NULL AND "{column}" != \'\''):
                     candidate = Path(old)
@@ -129,7 +173,9 @@ def export_archive(database: Path, storage: Path, destination: Path, password: s
         payload = io.BytesIO()
         with zipfile.ZipFile(payload, "w", compression=zipfile.ZIP_STORED) as archive:
             archive.writestr("certificates.db", _read(snapshot))
-            archive.writestr("manifest.json", json.dumps({"version": 1, "paths": mappings}, ensure_ascii=False))
+            archive.writestr("manifest.json", json.dumps({"version": 1, "paths": mappings, "categories": sorted(selected)}, ensure_ascii=False))
+            if "history" in selected and notification_history is not None:
+                archive.writestr("notification_history.json", json.dumps(notification_history, ensure_ascii=False))
             for name, data in files.items():
                 archive.writestr(name, data)
         if payload.tell() > MAX_SIZE - len(HEADER) - 44:
@@ -171,7 +217,7 @@ def import_archive(archive_path: Path, destination: Path, password: str) -> Path
             with zipfile.ZipFile(io.BytesIO(payload)) as archive:
                 entries = archive.infolist()
                 names = [entry.filename for entry in entries]
-                if len(entries) > MAX_FILES + 2 or len(set(names)) != len(names):
+                if len(entries) > MAX_FILES + 3 or len(set(names)) != len(names):
                     raise ArchiveError("Некорректный список файлов архива")
                 if not {"certificates.db", "manifest.json"} <= set(names):
                     raise ArchiveError("В архиве отсутствует база или описание")
@@ -179,7 +225,7 @@ def import_archive(archive_path: Path, destination: Path, password: str) -> Path
                     raise ArchiveError("Архив превышает допустимый размер")
                 for entry in entries:
                     if entry.compress_type != zipfile.ZIP_STORED or (
-                        entry.filename not in {"certificates.db", "manifest.json"}
+                        entry.filename not in {"certificates.db", "manifest.json", "notification_history.json"}
                         and not re.fullmatch(r"files/\d{6}\.[a-z0-9]{1,8}", entry.filename)
                     ):
                         raise ArchiveError("Недопустимый файл или формат упаковки")
@@ -195,6 +241,16 @@ def import_archive(archive_path: Path, destination: Path, password: str) -> Path
                     path.chmod(0o600)
         except (zipfile.BadZipFile, KeyError, TypeError, json.JSONDecodeError) as exc:
             raise ArchiveError("Некорректное содержимое архива") from exc
+        with closing(sqlite3.connect(staging / "certificates.db")) as connection:
+            _validate_db(connection, allow_older=True)
+            source_version = connection.execute("PRAGMA user_version").fetchone()[0]
+        if source_version < SCHEMA_VERSION:
+            from certificate_analyzer.infrastructure.database.data_upgrade import upgrade_database_copy
+            try:
+                result = upgrade_database_copy(staging / "certificates.db", staging / "upgraded.db")
+            except ValueError as exc:
+                raise ArchiveError(f"Не удалось обновить данные архива: {exc}") from None
+            result.database_path.replace(staging / "certificates.db")
         with closing(sqlite3.connect(staging / "certificates.db")) as connection:
             connection.execute("PRAGMA trusted_schema=OFF")
             _validate_db(connection)
@@ -213,6 +269,13 @@ def import_archive(archive_path: Path, destination: Path, password: str) -> Path
                     connection.execute(f'UPDATE "{table}" SET "{column}"=? WHERE "{column}"=?', (str(destination / name), old))
             _validate_db(connection)
             connection.commit()
+        if "notification_history.json" in names:
+            try:
+                history = json.loads((staging / "notification_history.json").read_text(encoding="utf-8"))
+                if not isinstance(history, list) or len(history) > 100 or not all(isinstance(item, dict) and all(key in item for key in ("time", "message", "type")) for item in history):
+                    raise ValueError()
+            except (ValueError, TypeError):
+                raise ArchiveError("Некорректная история уведомлений") from None
         settings = {"database_path": str(destination / "certificates.db"), "storage_folder": str(destination / "files"), "folders": {}, "mchd_folder": str(destination / "files"), "export_folder": str(destination / "reports")}
         (staging / "settings.json").write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
         (staging / "settings.json").chmod(0o600)
