@@ -1,4 +1,4 @@
-"""Create an unsigned draft with combined authorities, preserving source XML."""
+"""Создание неподписанного черновика с объединенными полномочиями с сохранением исходного XML."""
 
 from copy import deepcopy
 from datetime import datetime
@@ -81,7 +81,7 @@ class MCHDMerger:
         for elem in root.iter():
             if "ИдФайл" in elem.attrib:
                 elem.set("ИдФайл", f"ON_EMCHD_{datetime.now():%Y%m%d}_{number}")
-        # Existing signatures cannot authenticate a newly generated draft.
+        # Существующие электронные подписи не могут подтверждать вновь сформированный черновик.
         for parent in root.iter():
             for child in list(parent):
                 if child.tag == "{http://www.w3.org/2000/09/xmldsig#}Signature":
@@ -101,11 +101,13 @@ class MCHDMerger:
         for child in list(authorities):
             if local_name(child.tag) == "МашПолн":
                 authorities.remove(child)
-        codes = {
-            code: ""
-            for model in models
-            for code in model.authority_codes
-        }
+        codes = {}
+        for model in models:
+            for index, code in enumerate(model.authority_codes):
+                name = model.authority_names[index] if index < len(model.authority_names) else ""
+                # Предпочитать первое непустое наименование в исходном порядке.
+                if code not in codes or not codes[code]:
+                    codes[code] = name
         for code in sorted(codes):
             attrs = {"КодПолн": code}
             if codes[code]:

@@ -1,6 +1,7 @@
 """Доменная модель уведомления."""
 
 from dataclasses import asdict, dataclass, field
+from certificate_analyzer.domain.services.clock import utc_now
 from datetime import datetime
 from typing import Any
 
@@ -14,7 +15,7 @@ class Notification:
     title: str
     message: str
     notification_type: NotificationType = NotificationType.INFO
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:

@@ -1,5 +1,6 @@
 """Окно просмотра журнала аудита событий безопасности и операций с файлами."""
 
+from certificate_analyzer.presentation.gui.widgets.table_sort import TreeviewSorter
 import tkinter as tk
 from tkinter import ttk
 from typing import TYPE_CHECKING
@@ -72,6 +73,8 @@ class AuditWindow(tk.Toplevel):
             self.tree.heading(key, text=title)
             self.tree.column(key, width=width, minwidth=60)
 
+        self.sorter = TreeviewSorter(self.tree, kinds={"created_at": "date"})
+
         scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         scrollbar.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=scrollbar.set)
@@ -103,4 +106,5 @@ class AuditWindow(tk.Toplevel):
                 ),
             )
 
+        self.sorter.apply()
         self.stats_label.config(text=f"Всего событий в журнале: {len(events)}")

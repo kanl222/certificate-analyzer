@@ -1,4 +1,7 @@
 from datetime import timezone, datetime, timedelta
+import os
+import sys
+from pathlib import Path
 
 import pytest
 from cryptography import x509
@@ -9,11 +12,17 @@ from cryptography.x509.oid import NameOID
 
 UTC = timezone.utc
 
+if os.environ.get("CERTIFICATE_ANALYZER_GUI_TEST") == "1":
+    tcl_directory = Path(sys.base_prefix) / "tcl"
+    if (tcl_directory / "tcl8.6").is_dir():
+        os.environ["TCL_LIBRARY"] = (tcl_directory / "tcl8.6").as_posix()
+        os.environ["TK_LIBRARY"] = (tcl_directory / "tk8.6").as_posix()
+
 @pytest.fixture(autouse=True)
 def isolated_profile(tmp_path, monkeypatch):
     monkeypatch.setenv("CERTIFICATE_ANALYZER_HOME", str(tmp_path / "profile"))
     yield
-    # CLI starts a persistent user daemon; don't leak test daemons between tests.
+    # CLI запускает постоянный фоновый процесс пользователя; не оставляем тестовые процессы между тестами.
     from certificate_analyzer.runtime.ipc import WriteClient, WriterUnavailable, WriteCommandError, token_path
     path = tmp_path / "profile" / "certificates.db"
     if token_path(path).exists():
@@ -75,7 +84,7 @@ def mchd_file(tmp_path):
     def create(
         name="mchd.xml",
         codes=("A", "B"),
-        inn="123",
+        inn="7701234567",
         namespace="urn:test",
         expiry="2030-01-01",
     ):
@@ -84,7 +93,7 @@ def mchd_file(tmp_path):
             f'''<Доверенность xmlns="{namespace}" ИдФайл="old">
           <СвДов НомДовер="11111111-1111-1111-1111-111111111111" ВнНомДовер="internal" ДатаВыдДовер="2020-01-01" СрокДейст="{expiry}"/>
           <СвРосОрг КПП="456" НаимОрг="Организация &amp; Ко" ИННЮЛ="{inn}" ОГРН="789"/>
-          <СвУпПред ТипПред="3"><СведФизЛ СНИЛС="111" ИННФЛ="222"/><ФИО Имя="Иван" Фамилия="Иванов"/></СвУпПред>
+          <СвУпПред ТипПред="3"><СведФизЛ СНИЛС="11122233344" ИННФЛ="770987654321"/><ФИО Имя="Иван" Фамилия="Иванов"/></СвУпПред>
           <ЛицоБезДов><СвФЛ ИННФЛ="999"/><ФИО Фамилия="Директор" Имя="Пётр"/></ЛицоБезДов>
           <СвПолн>{"".join(f'<МашПолн КодПолн="{c}" НаимПолн="Полномочие {c}"/>' for c in codes)}</СвПолн>
           <ДругойИдентификатор>11111111-1111-1111-1111-111111111111</ДругойИдентификатор>

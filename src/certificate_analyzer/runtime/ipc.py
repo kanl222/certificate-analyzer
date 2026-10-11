@@ -1,4 +1,4 @@
-"""Single writer ownership and bounded loopback JSON transport."""
+"""Модель единого пишущего процесса (Single Writer) и локальный транспорт JSON."""
 
 import hashlib
 import hmac
@@ -59,7 +59,7 @@ class WriteClient:
     def call(self, service="", method="ping", args=(), kwargs=None):
         try:
             token = token_path(self.path).read_text(encoding="ascii")
-            with socket.create_connection(endpoint(self.path), timeout=2) as connection:
+            with socket.create_connection(endpoint(self.path), timeout=self.timeout) as connection:
                 connection.settimeout(self.timeout)
                 with connection.makefile("rwb") as stream:
                     send(stream, {"version": 1, "token": token, "service": service,
@@ -83,13 +83,16 @@ class _Handler(socketserver.StreamRequestHandler):
             request = receive(self.rfile)
             if request.get("version") != 1 or not hmac.compare_digest(str(request.get("token", "")), self.server.token):
                 raise ValueError("Отказано в доступе к локальному API")
-            with self.server.command_lock:
-                if request["method"] in ("ping", "stop") and not request["service"]:
-                    if request["method"] == "stop":
-                        logger.info("Принята команда остановки через IPC")
-                        self.server.stop_requested.set()
-                    result, errors = {"pid": os.getpid(), "database": str(self.server.app.database.path)}, {}
-                else:
+            if request["method"] in ("ping", "stop") and not request["service"]:
+                if request["method"] == "stop":
+                    logger.info("Принята команда остановки через IPC")
+                    self.server.stop_requested.set()
+                result, errors = {"pid": os.getpid(), "database": str(self.server.app.database.path)}, {}
+                response = {"ok": True, "result": encode(result), "errors": errors}
+            else:
+                with self.server.command_lock:
+                    if self.server.stop_requested.is_set():
+                        raise ValueError("Фоновый процесс завершает работу")
                     name, method = request["service"], request["method"]
                     if method not in COMMANDS.get(name, set()):
                         raise ValueError("Неизвестная команда записи")
@@ -100,7 +103,8 @@ class _Handler(socketserver.StreamRequestHandler):
                     errors = getattr(service, "errors", {})
                     logger.info("Команда IPC завершена: %s.%s, ошибок=%s, длительность=%.2f с",
                                 name, method, len(errors), time.monotonic() - started)
-                response = {"ok": True, "result": encode(result), "errors": errors}
+                    # Freeze the reply before another command can mutate service state.
+                    response = {"ok": True, "result": encode(result), "errors": dict(errors)}
         except Exception as exc:
             logger.exception("Ошибка команды IPC")
             response = {"ok": False, "error": str(exc), "error_type": type(exc).__name__}
@@ -110,11 +114,14 @@ class _Handler(socketserver.StreamRequestHandler):
             logger.exception("Не удалось вернуть результат IPC")
 
 
-class WriterServer(socketserver.TCPServer):
+class WriterServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     allow_reuse_address = False
+    daemon_threads = False
+    block_on_close = True
+    request_queue_size = 32
 
     def __init__(self, path):
-        # Bind before opening SQLite: a second worker must never migrate/write.
+        # Привязка к сокету до открытия SQLite: второй процесс никогда не должен выполнять миграции/запись.
         super().__init__(endpoint(path), _Handler, bind_and_activate=False)
         try:
             if os.name == "nt":
@@ -132,7 +139,7 @@ class WriterServer(socketserver.TCPServer):
     def attach(self, app):
         self.app = app
         target = token_path(self.path).with_suffix(".ipc-token." + str(os.getpid()))
-        # Restrict access before writing the secret, including on Windows.
+        # Ограничение прав доступа перед записью секрета, в том числе для Windows.
         target.touch(mode=0o600, exist_ok=True)
         if os.name == "nt":
             import win32api

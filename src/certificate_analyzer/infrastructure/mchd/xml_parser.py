@@ -23,12 +23,12 @@ DATE_FORMATS = (
 
 
 def local_name(tag: str) -> str:
-    """Return XML tag name without namespace."""
+    """Возвращает локальное имя XML-тега без пространства имен."""
     return tag.rsplit("}", 1)[-1]
 
 
 def find_element(node: Element | None, name: str) -> Element | None:
-    """Find first descendant by local XML tag name."""
+    """Находит первого потомка по локальному имени XML-тега."""
     if node is None:
         return None
 
@@ -38,16 +38,16 @@ def find_element(node: Element | None, name: str) -> Element | None:
     )
 
 
-# Backward-compatible alias imported by merger.py
+# Псевдоним для обратной совместимости, импортируемый в merger.py
 find = find_element  # noqa: F401
 
 
 def get_value(node: Element | None, *names: str) -> str:
-    """Read first matching value from attribute or element text.
+    """Считывает первое совпадающее значение из атрибута или текста элемента.
 
-    Legacy МЧД formats may store the same logical field either as:
-    - an XML attribute;
-    - a nested XML element.
+    Устаревшие форматы МЧД могут хранить одно и то же логическое поле:
+    - как XML-атрибут;
+    - как вложенный XML-элемент.
     """
     if node is None:
         return ""
@@ -55,7 +55,7 @@ def get_value(node: Element | None, *names: str) -> str:
     names_set = set(names)
 
     for element in node.iter():
-        # Attributes have priority to preserve legacy behaviour.
+        # Атрибуты имеют приоритет для сохранения обратной совместимости.
         for name in names:
             value = element.attrib.get(name)
             if value:
@@ -110,7 +110,7 @@ def find_representative(root: Element) -> Element | None:
 
 
 def collect_authority_codes(root: Element) -> list[str]:
-    """Collect unique authority codes in sorted order."""
+    """Собирает уникальные коды полномочий в отсортированном порядке."""
     return sorted(
         {
             code
@@ -121,10 +121,14 @@ def collect_authority_codes(root: Element) -> list[str]:
 
 
 class MchdXmlParser:
-    """Parser for legacy МЧД XML documents."""
+    """Парсер XML-документов МЧД."""
 
     def parse(self, xml_path: str | Path) -> MchdDocument:
         root = ET.parse(xml_path).getroot()
+        return self.parse_root(root, xml_path)
+
+    def parse_root(self, root: Element, xml_path: str | Path) -> MchdDocument:
+        """Разбирает предварительно безопасно загруженное и проверенное XML-дерево."""
 
         number = get_value(root, "НомДовер", "DocumentId")
         if not number:
@@ -173,7 +177,7 @@ class MchdXmlParser:
 
 
 class MCHDParser:
-    """Dictionary adapter for the migrated desktop interface."""
+    """Адаптер словаря для перенесенного графического интерфейса."""
 
     @staticmethod
     def parse_file(file_path: str | Path) -> dict:

@@ -121,10 +121,10 @@ def export_archive(database: Path, storage: Path, destination: Path, password: s
             groups = {"requests": ("certificate_requests",), "certificates": ("certificate_sources", "certificates"), "employees": ("employees",), "mchds": ("mchd_authorities", "mchds"), "audit": ("audit_events",)}
             tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             if record_ids is not None:
-                if not isinstance(record_ids, dict) or set(record_ids) - {"certificates", "employees", "mchds"}:
+                if not isinstance(record_ids, dict) or set(record_ids) - {"certificates", "employees", "mchds", "requests"}:
                     raise ArchiveError("Некорректный выбор записей")
-                for table, field in (("certificates", "fingerprint_sha256"), ("employees", "id"), ("mchds", "unified_number")):
-                    identifiers = record_ids.get(table, [])
+                for category, table, field in (("requests", "certificate_requests", "id"), ("certificates", "certificates", "fingerprint_sha256"), ("employees", "employees", "id"), ("mchds", "mchds", "unified_number")):
+                    identifiers = record_ids.get(category, [])
                     if not isinstance(identifiers, list) or not all(isinstance(value, (str, int)) for value in identifiers):
                         raise ArchiveError("Некорректные идентификаторы записей")
                     connection.execute("CREATE TEMP TABLE selection(value TEXT PRIMARY KEY)")
@@ -133,6 +133,10 @@ def export_archive(database: Path, storage: Path, destination: Path, password: s
                         raise ArchiveError("Выбранная запись удалена; обновите список экспорта")
                     if table == "employees":
                         connection.execute("INSERT OR IGNORE INTO selection SELECT CAST(employee_id AS TEXT) FROM certificates WHERE employee_id IS NOT NULL")
+                        if "requests" in selected:
+                            connection.execute("INSERT OR IGNORE INTO selection SELECT CAST(employee_id AS TEXT) FROM certificate_requests WHERE employee_id IS NOT NULL")
+                    if table == "certificates" and "requests" in selected:
+                        connection.execute("INSERT OR IGNORE INTO selection SELECT certificate_fingerprint FROM certificate_requests WHERE certificate_fingerprint IS NOT NULL")
                     connection.execute(f'DELETE FROM "{table}" WHERE CAST("{field}" AS TEXT) NOT IN (SELECT value FROM selection)')
                     connection.execute("DROP TABLE selection")
                 connection.execute("DELETE FROM certificate_sources WHERE fingerprint NOT IN (SELECT fingerprint_sha256 FROM certificates)")

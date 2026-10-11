@@ -1,5 +1,7 @@
 """Репозиторий для управления заявками на получение сертификатов в SQLite."""
 
+from certificate_analyzer.domain.services.clock import utc_now
+from certificate_analyzer.domain.services.certificate_status import utc
 from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -65,12 +67,12 @@ class CertificateRequestRepository:
             department=model.department,
             needs_signature=model.needs_signature,
             status=status,
-            submitted_at=model.submitted_at,
-            issued_at=model.issued_at,
+            submitted_at=utc(model.submitted_at) if model.submitted_at else None,
+            issued_at=utc(model.issued_at) if model.issued_at else None,
             certificate_fingerprint=model.certificate_fingerprint,
             comment=model.comment or "",
-            created_at=model.created_at,
-            updated_at=model.updated_at,
+            created_at=utc(model.created_at),
+            updated_at=utc(model.updated_at),
         )
 
     def save(self, request: CertificateRequest) -> CertificateRequest:
@@ -82,7 +84,7 @@ class CertificateRequestRepository:
         Returns:
             CertificateRequest: Сохраненная заявка с присвоенным ID.
         """
-        now = datetime.utcnow()
+        now = utc_now()
         with self.sessions.begin() as session:
             if request.id:
                 model = session.get(CertificateRequestModel, request.id)
@@ -218,7 +220,7 @@ class CertificateRequestRepository:
             bool: True в случае успешного обновления.
         """
         status_val = status.value if isinstance(status, CertificateRequestStatus) else str(status)
-        now = datetime.utcnow()
+        now = utc_now()
         with self.sessions.begin() as session:
             model = session.get(CertificateRequestModel, request_id)
             if not model:
@@ -246,7 +248,7 @@ class CertificateRequestRepository:
             if not model:
                 return False
             model.certificate_fingerprint = fingerprint
-            model.updated_at = datetime.utcnow()
+            model.updated_at = utc_now()
             return True
 
     def delete(self, request_id: int) -> bool:

@@ -105,7 +105,7 @@ def test_export_individual_records_and_excludes_audit_history_requests(tmp_path,
         second = app.certificates.import_files([certificate_file(name="second.pem")]).certificates[0]
         choices = app.archive.export_choices()
         assert len(choices["certificates"]) == 2
-        assert set(choices) == {"certificates", "employees", "mchds"}
+        assert set(choices) == {"certificates", "employees", "mchds", "requests"}
         archive = tmp_path / "selection.cat"
         app.archive.export(archive, "long-secret-password", ["certificates"], {"certificates": [first.fingerprint_sha256], "employees": [], "mchds": []})
         restored = import_archive(archive, tmp_path / "selection-restored", "long-secret-password").parent
@@ -118,3 +118,25 @@ def test_export_individual_records_and_excludes_audit_history_requests(tmp_path,
         assert not any(second.fingerprint_sha256 in path.name for path in restored.rglob("*"))
         with pytest.raises(ValueError):
             app.archive.export(tmp_path / "audit.cat", "long-secret-password", ["audit"])
+
+
+def test_selecting_request_exports_only_its_dependencies(tmp_path, certificate_file):
+    with make_app(tmp_path, "request-source") as app:
+        first = app.certificates.import_files([certificate_file(name="linked.pem")]).certificates[0]
+        other = app.certificates.import_files([certificate_file(name="other.pem")]).certificates[0]
+        employee(app.database.path, 100, "Request owner", "100")
+        request = app.certificate_requests.create_request(request_number="SELECTED", employee_id=100)
+        app.certificate_requests.link_certificate(request.id, first.fingerprint_sha256)
+        app.certificate_requests.create_request(request_number="EXCLUDED")
+        choices = app.archive.export_choices()
+        assert len(choices["requests"]) == 2
+        assert choices["certificates"][0]["subject"]
+        archive = tmp_path / "request-selection.cat"
+        app.archive.export(archive, "long-secret-password", ["requests"], {"requests": [request.id]})
+        restored = import_archive(archive, tmp_path / "request-restored", "long-secret-password").parent
+        with closing(sqlite3.connect(restored / "certificates.db")) as db:
+            assert db.execute("SELECT request_number FROM certificate_requests").fetchall() == [("SELECTED",)]
+            assert db.execute("SELECT fingerprint_sha256 FROM certificates").fetchall() == [(first.fingerprint_sha256,)]
+            assert db.execute("SELECT count(*) FROM employees WHERE id=100").fetchone()[0] == 1
+            assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+            assert db.execute("SELECT count(*) FROM certificates WHERE fingerprint_sha256=?", (other.fingerprint_sha256,)).fetchone()[0] == 0

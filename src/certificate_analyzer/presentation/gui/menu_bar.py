@@ -63,7 +63,7 @@ class AppMenuBar:
             command=self.handler.import_phonebook,
         )
         file_menu.add_cascade(label="Импорт", menu=import_menu)
-        import_menu.add_command(label="Импорт защищённого архива…", command=self.handler.import_archive)
+        import_menu.add_command(label="Импорт хранилища сертификатов…", command=self.handler.import_archive)
 
         export_menu = tk.Menu(file_menu, tearoff=0)
         export_menu.add_command(
@@ -72,7 +72,7 @@ class AppMenuBar:
             accelerator="Ctrl+E",
         )
         file_menu.add_cascade(label="Экспорт", menu=export_menu)
-        export_menu.add_command(label="Экспорт защищённого архива…", command=self.handler.export_archive)
+        export_menu.add_command(label="Экспорт хранилища сертификатов…", command=self.handler.export_archive)
 
         file_menu.add_separator()
         file_menu.add_command(

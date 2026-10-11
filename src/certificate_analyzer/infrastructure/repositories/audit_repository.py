@@ -1,7 +1,8 @@
 """Репозиторий журнала аудита событий на базе SQLAlchemy."""
 
 import json
-from datetime import datetime
+from certificate_analyzer.domain.services.clock import utc_now
+from certificate_analyzer.domain.services.certificate_status import utc
 from sqlalchemy import select
 
 from certificate_analyzer.domain.models.audit_event import AuditEvent
@@ -42,7 +43,7 @@ class AuditRepository:
             entity_type=model.entity_type,
             entity_id=model.entity_id,
             description=model.description,
-            created_at=model.created_at,
+            created_at=utc(model.created_at),
             details=details,
         )
 
@@ -55,7 +56,7 @@ class AuditRepository:
         Returns:
             AuditEvent: Сохраненное событие с присвоенным идентификатором id.
         """
-        now = datetime.utcnow()
+        now = utc_now()
         details_str = json.dumps(event.details or {}, ensure_ascii=False)
         with self.sessions.begin() as session:
             model = AuditEventModel(

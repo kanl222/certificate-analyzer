@@ -1,5 +1,6 @@
 """SQLAlchemy-модель журнала аудита событий безопасности и операций."""
 
+from certificate_analyzer.domain.services.clock import utc_now
 from datetime import datetime
 from sqlalchemy import DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -18,4 +19,4 @@ class AuditEventModel(Base):
     entity_id: Mapped[str] = mapped_column(String(255), index=True)
     description: Mapped[str] = mapped_column(Text)
     details_json: Mapped[str] = mapped_column(Text, default="{}")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, index=True)

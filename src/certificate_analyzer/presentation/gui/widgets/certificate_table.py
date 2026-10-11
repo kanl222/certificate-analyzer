@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+from certificate_analyzer.presentation.gui.widgets.table_sort import TreeviewSorter
 
 from certificate_analyzer.presentation.gui.styles import (
     EXPIRED_COLOR,
@@ -44,7 +45,7 @@ class CertificateTable(ttk.Frame):
         self.tree.tag_configure("normal", background=NORMAL_COLOR, foreground=NORMAL_TEXT)
         self.tree.tag_configure("duplicate", background="#fff3cd", foreground="black")
 
-        self.sort_reverse = {col: False for col in self.columns}
+        self.sorter = TreeviewSorter(self.tree, kinds={"Действителен до": "date", "Осталось дней": "number"})
         self._on_select_callback = None
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
 
@@ -64,6 +65,7 @@ class CertificateTable(ttk.Frame):
 
     def insert_row(self, values, tags=()):
         self.tree.insert("", tk.END, values=values, tags=tags)
+        self.sorter.apply()
 
     def sort_column(self, col):
-        pass # Implementation of sort
+        self.sorter.toggle(col)

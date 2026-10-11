@@ -1,3 +1,4 @@
+from certificate_analyzer.domain.services.clock import utc_now
 from datetime import datetime
 from typing import TYPE_CHECKING
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
@@ -46,8 +47,8 @@ class CertificateSourceModel(Base):
     content_sha256: Mapped[str] = mapped_column(String(64), default="")
     file_name: Mapped[str | None] = mapped_column(String(255), default="")
     size: Mapped[int | None] = mapped_column(Integer, default=0)
-    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
-    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow)
+    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime, default=utc_now)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, default=utc_now)
 
     certificate: Mapped["CertificateModel"] = relationship(back_populates="sources")
 

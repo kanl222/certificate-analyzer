@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from certificate_analyzer.domain.services.clock import utc_now
 from hashlib import sha256
 from pathlib import Path
 
@@ -109,7 +109,7 @@ class CertificateService:
 
         paths = list(dict.fromkeys(str(Path(p).expanduser().resolve()) for p in paths))
         collected = {}
-        now = datetime.utcnow()
+        now = utc_now()
 
         # Обработка пакетами по 200 файлов для ограничения нагрузки на транзакцию БД
         for start in range(0, len(paths), 200):
@@ -123,7 +123,8 @@ class CertificateService:
                     digest = sha256(data).hexdigest()
                     cached = known.get(path)
 
-                    if cached and cached[0] == digest and not self.phonebook.employees:
+                    if (cached and cached[0] == digest and not self.phonebook.employees
+                            and (not self.employees or cached[3] is not None)):
                         stored = Path(cached[1])
                         if (
                             stored.parent == self.storage.folder

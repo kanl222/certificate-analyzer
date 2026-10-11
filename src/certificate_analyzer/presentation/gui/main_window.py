@@ -147,6 +147,7 @@ class CertificateAnalyzerApp:
             self.mchd_tab,
             application=self.app,
             on_message=self.set_message,
+            submit_task=self._submit,
         )
         self.mchd_view.pack(fill="both", expand=True)
 
@@ -373,7 +374,23 @@ class CertificateAnalyzerApp:
 
     def export_archive(self):
         from certificate_analyzer.presentation.gui.views.archive_view import ExportArchiveWizard
-        self._submit(self.app.archive.export_choices, lambda records: ExportArchiveWizard(self, records))
+        self._submit(self._export_choices, lambda records: ExportArchiveWizard(self, records))
+
+    def _export_choices(self):
+        records = self.app.archive.export_choices()
+        def compatible(data):
+            return "requests" in data and all(
+                all(key in row for key in fields)
+                for category, fields in (("certificates", ("subject", "original_name", "valid_from", "issuer", "serial_number")), ("employees", ("full_name", "department")))
+                for row in data.get(category, [])
+            )
+        if not compatible(records):
+            from certificate_analyzer.runtime.user_daemon import restart_writer
+            restart_writer(self.app.settings)
+            records = self.app.archive.export_choices()
+            if not compatible(records):
+                raise ValueError("Фоновый процесс не предоставил данные для экспорта. Обновите приложение и фоновый процесс.")
+        return records
 
     def import_archive(self):
         from certificate_analyzer.presentation.gui.views.archive_view import ArchiveDialog

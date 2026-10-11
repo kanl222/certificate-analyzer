@@ -25,6 +25,7 @@ dependencies = [
     { name = "defusedxml" },
     { name = "openpyxl" },
     { name = "python-docx" },
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "reportlab" },
     { name = "sqlalchemy" },
 ]
@@ -34,7 +35,6 @@ gui = [
     { name = "pyperclip" },
 ]
 windows = [
-    { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "setuptools", marker = "sys_platform == 'win32'" },
     { name = "win10toast", marker = "sys_platform == 'win32'" },
 ]
@@ -56,7 +56,7 @@ requires-dist = [
     { name = "openpyxl", specifier = ">=3.1" },
     { name = "pyperclip", marker = "extra == 'gui'", specifier = ">=1.8" },
     { name = "python-docx", specifier = ">=1.1" },
-    { name = "pywin32", marker = "sys_platform == 'win32' and extra == 'windows'", specifier = ">=306" },
+    { name = "pywin32", marker = "sys_platform == 'win32'", specifier = ">=306" },
     { name = "reportlab", specifier = ">=4" },
     { name = "setuptools", marker = "sys_platform == 'win32' and extra == 'windows'", specifier = "<81" },
     { name = "sqlalchemy", specifier = ">=2.0.54" },

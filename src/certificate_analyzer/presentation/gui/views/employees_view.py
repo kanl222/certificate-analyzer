@@ -1,5 +1,6 @@
 """Представление вкладки сотрудников организации в графическом интерфейсе."""
 
+from certificate_analyzer.presentation.gui.widgets.table_sort import TreeviewSorter
 import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Any, Callable
@@ -211,6 +212,8 @@ class EmployeesView(ttk.Frame):
             self.tree.heading(col_id, text=col_title, anchor="w")
             self.tree.column(col_id, width=col_width, minwidth=60, anchor="w")
 
+        self.sorter = TreeviewSorter(self.tree)
+
         v_scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         h_scroll = ttk.Scrollbar(table_frame, orient="horizontal", command=self.tree.xview)
         self.tree.configure(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set)
@@ -304,6 +307,8 @@ class EmployeesView(ttk.Frame):
                     emp.snils or "—",
                 ),
             )
+
+        self.sorter.apply()
 
         if self.employees:
             self.empty_label.hide()

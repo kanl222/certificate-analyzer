@@ -4,6 +4,7 @@ from pathlib import Path
 from xml.etree.ElementTree import ParseError
 
 from defusedxml.common import DefusedXmlException
+from defusedxml import ElementTree as ET
 
 from certificate_analyzer.domain.enums.mchd_status import MchdStatus
 from certificate_analyzer.domain.models.mchd import MchdDocument
@@ -53,10 +54,13 @@ class MchdService:
 
         for path in scan_files(folder, (".xml",)):
             try:
-                doc = parser.parse(path)
-                documents.append(doc)
+                root = ET.parse(path).getroot()
+                self.validator.validate_or_raise(root)
+                doc = parser.parse_root(root, path)
+                self.validator.validate_document_or_raise(doc)
                 if save_to_db and self.repository:
                     self.repository.save(doc)
+                documents.append(doc)
             except (ValueError, OSError, ParseError, DefusedXmlException) as exc:
                 self.errors[str(path)] = str(exc)
 
@@ -76,15 +80,19 @@ class MchdService:
         Returns:
             list[MchdDocument]: Список успешно импортированных документов.
         """
+        self.errors = {}
         documents: list[MchdDocument] = []
         parser = MchdXmlParser()
 
         for path in paths:
             try:
-                doc = parser.parse(path)
-                documents.append(doc)
+                root = ET.parse(path).getroot()
+                self.validator.validate_or_raise(root)
+                doc = parser.parse_root(root, path)
+                self.validator.validate_document_or_raise(doc)
                 if save_to_db and self.repository:
                     self.repository.save(doc)
+                documents.append(doc)
             except (ValueError, OSError, ParseError, DefusedXmlException) as exc:
                 self.errors[str(path)] = str(exc)
 
@@ -99,6 +107,7 @@ class MchdService:
         Returns:
             MchdDocument: Сохраненная доверенность.
         """
+        self.validator.validate_document_or_raise(mchd)
         if self.repository:
             return self.repository.save(mchd)
         return mchd
@@ -121,6 +130,8 @@ class MchdService:
         search: str | None = None,
         authority_code: str | None = None,
         status: MchdStatus | None = None,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[MchdDocument]:
         """Возвращает список сохраненных МЧД с фильтрацией.
 
@@ -137,6 +148,8 @@ class MchdService:
                 search=search,
                 authority_code=authority_code,
                 status=status,
+                limit=limit,
+                offset=offset,
             )
         return []
 

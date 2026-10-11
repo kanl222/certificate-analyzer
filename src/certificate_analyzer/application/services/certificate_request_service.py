@@ -1,5 +1,6 @@
 """Сервис приложения для управления заявками на получение сертификатов."""
 
+from certificate_analyzer.domain.services.clock import utc_now
 from datetime import datetime
 import uuid
 
@@ -57,10 +58,10 @@ class CertificateRequestService:
             CertificateRequest: Созданная доменная заявка.
         """
         if not request_number:
-            request_number = f"REQ-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+            request_number = f"REQ-{utc_now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
         if not employee_id and full_name and self.employees:
-            emp = self.employees.find_by_name(full_name)
+            emp = self.employees.find_by_name(full_name, department=department or None)
             if emp:
                 employee_id = emp.id
                 department = department or (emp.department or "")
@@ -71,7 +72,7 @@ class CertificateRequestService:
             department=department,
             needs_signature=needs_signature,
             status=status,
-            submitted_at=datetime.utcnow() if status != CertificateRequestStatus.NOT_SUBMITTED else None,
+            submitted_at=utc_now() if status != CertificateRequestStatus.NOT_SUBMITTED else None,
             comment=comment,
         )
         return self.repository.save(req)

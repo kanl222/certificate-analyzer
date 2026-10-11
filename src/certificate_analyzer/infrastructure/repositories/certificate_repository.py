@@ -1,4 +1,4 @@
-"""Metadata repository using short SQLAlchemy sessions and batched upserts."""
+"""Репозиторий метаданных, использующий короткие сессии SQLAlchemy и пакетные вставки/обновления."""
 
 import json
 from datetime import datetime, timedelta, timezone
@@ -39,6 +39,7 @@ class CertificateRepository:
     def _values(cert):
         employee = cert.employee
         values = dict(
+            employee_id=employee.id if employee else None,
             fingerprint_sha256=cert.fingerprint_sha256,
             subject=cert.subject,
             issuer=cert.issuer,
@@ -91,6 +92,7 @@ class CertificateRepository:
                     (Model.status == "REVOKED", "REVOKED"),
                     else_=statement.excluded.status,
                 )
+                updates["employee_id"] = func.coalesce(statement.excluded.employee_id, Model.employee_id)
                 updates["phones_json"] = case(
                     (statement.excluded.phones_json == "[]", Model.phones_json),
                     else_=statement.excluded.phones_json,
@@ -145,13 +147,14 @@ class CertificateRepository:
                     Source.content_sha256,
                     Model.source_path,
                     Source.fingerprint,
+                    Model.employee_id,
                 )
                 .join(Model, Model.fingerprint_sha256 == Source.fingerprint)
                 .where(Source.path.in_(paths))
             )
             return {
-                path: (digest, stored_path, fingerprint)
-                for path, digest, stored_path, fingerprint in rows
+                path: (digest, stored_path, fingerprint, employee_id)
+                for path, digest, stored_path, fingerprint, employee_id in rows
             }
 
     def find_many(self, fingerprints):
@@ -268,6 +271,7 @@ class CertificateRepository:
             email=model.email,
             original_name=model.original_name,
             employee=Employee(
+                id=model.employee_id,
                 full_name=model.owner_name or model.subject,
                 office=model.office or None,
                 department=model.department or None,

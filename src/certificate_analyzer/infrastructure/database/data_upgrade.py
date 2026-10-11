@@ -1,4 +1,4 @@
-"""Upgrade an offline SQLite COPY to the application's current data schema."""
+"""Обновление офлайн-копии SQLite до текущей схемы данных приложения."""
 
 from contextlib import closing
 from dataclasses import dataclass
@@ -8,6 +8,7 @@ import sqlite3
 import tempfile
 
 from sqlalchemy import create_engine
+from sqlalchemy.pool import NullPool
 
 from certificate_analyzer.infrastructure.database.migrations import SCHEMA_VERSION, migrate
 from certificate_analyzer.infrastructure.database.models import Base
@@ -21,10 +22,10 @@ class UpgradeResult:
 
 
 def upgrade_database_copy(source: Path, destination: Path) -> UpgradeResult:
-    """Preserve original, including WAL. Publish only a verified upgraded copy.
+    """Сохраняет оригинал, включая WAL. Публикует только проверенную обновленную копию.
 
-    Caller must stop the daemon and close database users before switching profiles.
-    This is not an API for GUI to modify the active database.
+    Вызывающая сторона должна остановить фоновый процесс и закрыть соединения перед сменой профиля.
+    Это не API для изменения активной БД из графического интерфейса.
     """
     source = Path(source).expanduser().resolve()
     destination = Path(destination).expanduser().absolute()
@@ -32,10 +33,10 @@ def upgrade_database_copy(source: Path, destination: Path) -> UpgradeResult:
         raise ValueError("Целевая база уже существует")
     if Path(str(source) + ".ipc-token").exists():
         raise ValueError("Перед преобразованием остановите фоновый процесс")
-    with tempfile.TemporaryDirectory(prefix="ca-upgrade-", dir=destination.parent) as temp:
+    with tempfile.TemporaryDirectory(prefix="ca-upgrade-", dir=destination.parent, ignore_cleanup_errors=True) as temp:
         snapshot = Path(temp) / "upgraded.db"
         with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as original:
-            # sqlite3 backup includes committed pages from WAL.
+            # Резервное копирование sqlite3 включает зафиксированные страницы из WAL.
             with closing(sqlite3.connect(snapshot)) as backup:
                 original.backup(backup)
                 backup.execute("PRAGMA journal_mode=DELETE")
@@ -50,7 +51,7 @@ def upgrade_database_copy(source: Path, destination: Path) -> UpgradeResult:
                 if backup.execute("SELECT 1 FROM sqlite_master WHERE type='trigger' LIMIT 1").fetchone():
                     raise ValueError("База с триггерами не поддерживается")
                 counts = {table: backup.execute('SELECT count(*) FROM "' + table.replace('"', '""') + '"').fetchone()[0] for table in tables}
-        engine = create_engine("sqlite:///" + snapshot.as_posix())
+        engine = create_engine("sqlite:///" + snapshot.as_posix(), poolclass=NullPool)
         try:
             migrate(engine, snapshot)
             Base.metadata.create_all(engine)
@@ -66,6 +67,12 @@ def upgrade_database_copy(source: Path, destination: Path) -> UpgradeResult:
         finally:
             engine.dispose()
         snapshot.chmod(0o600)
-        # Hard link publishes a complete file exclusively, with no overwrite window.
-        os.link(snapshot, destination)
+        # Эксклюзивное резервирование, чтобы случайно созданный параллельно файл назначения не был перезаписан.
+        descriptor = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.close(descriptor)
+        try:
+            os.replace(snapshot, destination)
+        except BaseException:
+            destination.unlink(missing_ok=True)
+            raise
     return UpgradeResult(destination, version, SCHEMA_VERSION)

@@ -1,11 +1,20 @@
 """Password-protected export/import dialogs; all data operations go through IPC."""
 
 import json
+from datetime import datetime
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+from certificate_analyzer.presentation.gui.widgets.table_sort import TreeviewSorter
+from certificate_analyzer.domain.enums.certificate_request_status import CertificateRequestStatus
 
-LABELS = {"certificates": "Сертификаты", "employees": "Сотрудники", "mchds": "МЧД"}
+LABELS = {"certificates": "Сертификаты", "employees": "Сотрудники", "mchds": "МЧД", "requests": "Заявки"}
 CHOICES = {"Сохранить текущую": "current", "Использовать из архива": "incoming", "Пропустить": "skip"}
+TABLE_COLUMNS = {
+    "certificates": {"subject": "ФИО", "original_name": "Название сертификата / файл", "valid_from": "Действителен с", "valid_to": "Действителен до", "department": "Подразделение", "status": "Статус", "issuer": "Издатель", "serial_number": "Серийный номер"},
+    "employees": {"full_name": "ФИО", "department": "Подразделение", "position": "Должность", "email": "Email"},
+    "mchds": {"id": "Номер МЧД", "representative_fio": "Представитель", "principal_name": "Доверитель", "valid_to": "Действует до", "status": "Статус"},
+    "requests": {"request_number": "Номер заявки", "employee": "Сотрудник", "department": "Подразделение", "status": "Статус", "submitted_at": "Дата подачи"},
+}
 
 
 class ExportArchiveWizard(tk.Toplevel):
@@ -13,26 +22,90 @@ class ExportArchiveWizard(tk.Toplevel):
 
     def __init__(self, handler, records):
         super().__init__(handler.root)
-        self.handler, self.records = handler, records
-        self.title("Экспорт защищённого архива")
-        self.geometry("780x560")
+        self.handler = handler
+        self.records = {category: records.get(category, []) for category in LABELS}
+        self.title("Экспорт хранилища сертификатов")
+        self.geometry("1050x620")
         self.minsize(600, 420)
         self.transient(handler.root)
         self.step = 0
         self.password = tk.StringVar(master=self)
         self.confirm = tk.StringVar(master=self)
-        self.variables = {category: {str(row["id"]): tk.BooleanVar(master=self, value=False) for row in rows} for category, rows in records.items()}
+        self.variables = {category: {str(row["id"]): tk.BooleanVar(master=self, value=False) for row in rows} for category, rows in self.records.items()}
+        self.checkbox_images = self.create_checkbox_images()
         self.body = ttk.Frame(self, padding=16)
         self.body.pack(fill="both", expand=True)
         self.render()
 
     def required_employees(self):
-        return {str(row["employee_id"]) for row in self.records["certificates"] if row.get("employee_id") is not None and self.variables["certificates"][str(row["id"])].get()}
+        return {str(row["employee_id"]) for category in ("certificates", "requests") for row in self.records[category] if row.get("employee_id") is not None and self.variables[category][str(row["id"])].get()}
+
+    def required_certificates(self):
+        return {str(row["certificate_fingerprint"]) for row in self.records["requests"] if row.get("certificate_fingerprint") and self.variables["requests"][str(row["id"])].get()}
+
+    def required_rows(self, category):
+        return self.required_employees() if category == "employees" else self.required_certificates() if category == "certificates" else set()
+
+    def sync_dependencies(self):
+        for identifier in self.required_certificates():
+            if identifier in self.variables["certificates"]:
+                self.variables["certificates"][identifier].set(True)
+        for identifier in self.required_employees():
+            if identifier in self.variables["employees"]:
+                self.variables["employees"][identifier].set(True)
+
+    def create_checkbox_images(self):
+        images = {}
+        for name in ("empty", "checked", "linked"):
+            image = tk.PhotoImage(master=self, width=18, height=18)
+            color = "#969696" if name == "linked" else "#334155"
+            image.put(color, to=(1, 1, 17, 2))
+            image.put(color, to=(1, 16, 17, 17))
+            image.put(color, to=(1, 1, 2, 17))
+            image.put(color, to=(16, 1, 17, 17))
+            if name != "empty":
+                for x, y in ((4, 9), (5, 10), (6, 11), (7, 12), (8, 11), (9, 10), (10, 9), (11, 8), (12, 7), (13, 6)):
+                    image.put(color, to=(x, y, x + 2, y + 2))
+            images[name] = image
+        return images
+
+    def selection_image(self, category, identifier):
+        if identifier in self.required_rows(category):
+            return self.checkbox_images["linked"]
+        return self.checkbox_images["checked" if self.variables[category][identifier].get() else "empty"]
+
+    def toggle_row(self, category, identifier):
+        if not identifier or identifier in self.required_rows(category):
+            return
+        variable = self.variables[category][identifier]
+        variable.set(not variable.get())
+        self.sync_dependencies()
+        self.table.item(identifier, image=self.selection_image(category, identifier))
+
+    @staticmethod
+    def display_value(row, key):
+        value = row.get(key) or "—"
+        if key in ("valid_from", "valid_to", "submitted_at") and value != "—":
+            try:
+                return datetime.fromisoformat(str(value)).strftime("%d.%m.%Y")
+            except ValueError:
+                pass
+        if key == "status":
+            labels = {"ACTIVE": "Действует", "EXPIRED": "Просрочен", "EXPIRING_SOON": "Истекает", "INVALID": "Недействителен", "REVOKED": "Отозван"}
+            try:
+                return CertificateRequestStatus(value).label
+            except ValueError:
+                return labels.get(value, value)
+        return value
 
     def toggle_all(self, category, value):
-        required = self.required_employees() if category == "employees" else set()
+        required = self.required_rows(category)
         for identifier, variable in self.variables[category].items():
             variable.set(value or identifier in required)
+        self.sync_dependencies()
+        if hasattr(self, "table") and self.step < len(LABELS) and list(LABELS)[self.step] == category:
+            for identifier in self.table.get_children():
+                self.table.item(identifier, image=self.selection_image(category, identifier))
 
     def move(self, offset):
         self.step += offset
@@ -42,36 +115,46 @@ class ExportArchiveWizard(tk.Toplevel):
         for widget in self.body.winfo_children():
             widget.destroy()
         stages = list(LABELS)
-        title = LABELS[stages[self.step]] if self.step < 3 else "Пароль и сохранение"
-        ttk.Label(self.body, text=f"Шаг {self.step + 1} из 4 — {title}", font=("", 13, "bold")).pack(anchor="w", pady=(0, 12))
-        if self.step < 3:
+        self.sync_dependencies()
+        title = LABELS[stages[self.step]] if self.step < len(LABELS) else "Пароль и сохранение"
+        ttk.Label(self.body, text=f"Шаг {self.step + 1} из {len(LABELS) + 1} — {title}", font=("", 13, "bold")).pack(anchor="w", pady=(0, 12))
+        if self.step < len(LABELS):
             category = stages[self.step]
             controls = ttk.Frame(self.body)
             controls.pack(fill="x", pady=(0, 8))
             ttk.Button(controls, text="Выбрать всё", command=lambda: self.toggle_all(category, True)).pack(side="left")
             ttk.Button(controls, text="Снять выбор", command=lambda: self.toggle_all(category, False)).pack(side="left", padx=8)
-            required = self.required_employees() if category == "employees" else set()
+            required = self.required_rows(category)
             if required:
-                ttk.Label(self.body, text="Сотрудники, связанные с выбранными сертификатами, включаются для сохранения связей.", wraplength=700).pack(anchor="w", pady=5)
+                ttk.Label(self.body, text="Связанные записи включаются автоматически для сохранения связей.", wraplength=900).pack(anchor="w", pady=5)
             area = ttk.Frame(self.body)
             area.pack(fill="both", expand=True)
-            canvas = tk.Canvas(area, highlightthickness=0)
-            scroll = ttk.Scrollbar(area, orient="vertical", command=canvas.yview)
-            canvas.configure(yscrollcommand=scroll.set)
-            scroll.pack(side="right", fill="y")
-            canvas.pack(side="left", fill="both", expand=True)
-            rows = ttk.Frame(canvas)
-            window_id = canvas.create_window((0, 0), window=rows, anchor="nw")
-            rows.bind("<Configure>", lambda event: canvas.configure(scrollregion=canvas.bbox("all")))
-            canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window_id, width=event.width))
-            if not self.records[category]:
-                ttk.Label(rows, text="Нет записей для экспорта").pack(anchor="w", pady=16)
+            columns = TABLE_COLUMNS[category]
+            self.table = ttk.Treeview(area, columns=tuple(columns), show="tree headings", selectmode="browse")
+            self.table.heading("#0", text="")
+            self.table.column("#0", width=44, minwidth=44, stretch=False)
+            for key, title in columns.items():
+                self.table.heading(key, text=title)
+                self.table.column(key, width=180, minwidth=110)
+            vertical = ttk.Scrollbar(area, orient="vertical", command=self.table.yview)
+            horizontal = ttk.Scrollbar(area, orient="horizontal", command=self.table.xview)
+            self.table.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+            self.table.grid(row=0, column=0, sticky="nsew")
+            vertical.grid(row=0, column=1, sticky="ns")
+            horizontal.grid(row=1, column=0, sticky="ew")
+            area.rowconfigure(0, weight=1)
+            area.columnconfigure(0, weight=1)
             for row in self.records[category]:
                 identifier = str(row["id"])
-                linked = identifier in required
-                if linked:
+                if identifier in required:
                     self.variables[category][identifier].set(True)
-                ttk.Checkbutton(rows, text=row["label"] + (" (связан с сертификатом)" if linked else ""), variable=self.variables[category][identifier], state="disabled" if linked else "normal").pack(anchor="w", fill="x", pady=4)
+                self.table.insert("", "end", iid=identifier, image=self.selection_image(category, identifier), values=tuple(self.display_value(row, key) for key in columns))
+            self.table_sorter = TreeviewSorter(self.table, kinds={"valid_from": "date", "valid_to": "date", "submitted_at": "date"})
+            self.table.bind("<Button-1>", lambda event: self.toggle_row(category, self.table.identify_row(event.y)) if self.table.identify_region(event.x, event.y) in ("tree", "cell") and self.table.identify_column(event.x) == "#0" else None)
+            self.table.bind("<space>", lambda event: self.toggle_row(category, self.table.focus()))
+            ttk.Label(self.body, text="Отметьте нужные записи галочками. Серые галочки обозначают связанные записи.").pack(anchor="w", pady=5)
+            if not self.records[category]:
+                ttk.Label(self.body, text="Нет записей для экспорта").pack(anchor="w")
         else:
             for category, label in LABELS.items():
                 count = sum(variable.get() for variable in self.variables[category].values())
@@ -83,9 +166,10 @@ class ExportArchiveWizard(tk.Toplevel):
         navigation.pack(side="bottom", fill="x", pady=(12, 0))
         ttk.Button(navigation, text="Отмена", command=self.destroy).pack(side="left")
         ttk.Button(navigation, text="Назад", command=lambda: self.move(-1), state="disabled" if self.step == 0 else "normal").pack(side="left", padx=8)
-        ttk.Button(navigation, text="Далее" if self.step < 3 else "Сохранить архив…", command=(lambda: self.move(1)) if self.step < 3 else self.save).pack(side="right")
+        ttk.Button(navigation, text="Далее" if self.step < len(LABELS) else "Сохранить архив…", command=(lambda: self.move(1)) if self.step < len(LABELS) else self.save).pack(side="right")
 
     def save(self):
+        self.sync_dependencies()
         selected = {category: [row["id"] for row in self.records[category] if self.variables[category][str(row["id"])].get()] for category in LABELS}
         if not any(selected.values()):
             messagebox.showerror("Экспорт", "Выберите хотя бы одну запись", parent=self)
@@ -105,7 +189,7 @@ class ArchiveDialog(tk.Toplevel):
         super().__init__(handler.root)
         self.handler = handler
         self.importing = importing
-        self.title("Импорт защищённого архива" if importing else "Экспорт защищённого архива")
+        self.title("Импорт хранилища сертификатов" if importing else "Экспорт хранилища сертификатов")
         self.transient(handler.root)
         self.resizable(False, False)
         self.password = tk.StringVar()

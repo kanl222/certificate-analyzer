@@ -4,12 +4,40 @@ import os
 from types import SimpleNamespace
 from typing import Any
 import pytest
+from unittest.mock import Mock
 
 from certificate_analyzer.presentation.gui.views.mchd_view import (
     MchdPersonalDataWindow,
     MchdView,
 )
 from certificate_analyzer.presentation.gui.styles import TEXT_COLOR, WARNING_TEXT
+
+
+def test_sort_dates_with_missing_values_and_toggle():
+    rows = {"later": "01.07.2027", "empty": "Не найдена", "earlier": "01.07.2026"}
+    moved = []
+    tree = SimpleNamespace(get_children=lambda *_: list(rows), set=lambda row, col: rows[row],
+                           move=lambda row, parent, index: moved.append(row), heading=Mock())
+    view = SimpleNamespace(tree=tree, sort_reverse={"expiry_date": False},
+                           COLUMNS=MchdView.COLUMNS, COLUMN_HEADINGS=MchdView.COLUMN_HEADINGS)
+    MchdView.sort_column(view, "expiry_date")
+    assert moved == ["empty", "earlier", "later"]
+    moved.clear()
+    MchdView.sort_column(view, "expiry_date")
+    assert moved == ["later", "earlier", "empty"]
+
+
+def test_refresh_keeps_selected_sort_order():
+    tree = Mock()
+    tree.get_children.return_value = []
+    records = [{"doc_number": "later", "expiry_date": "01.07.2027"},
+               {"doc_number": "earlier", "expiry_date": "01.07.2026"}]
+    view = SimpleNamespace(tree=tree, mchd_data=records, filtered_data=list(records),
+                           sort_column_key="expiry_date", sort_descending=False,
+                           _row_to_mchd={}, _get_status_tag=MchdView._get_status_tag,
+                           empty_label=Mock(), on_select=Mock())
+    MchdView.refresh_table(view)
+    assert [call.kwargs["values"][1] for call in tree.insert.call_args_list] == ["earlier", "later"]
 
 
 def _sample_mchd_records() -> list[dict[str, Any]]:
@@ -211,7 +239,7 @@ def test_mchd_personal_data_window():
         data = _sample_mchd_records()[0]
         card = MchdPersonalDataWindow(root, data)
         assert card.window is not None
-        assert card.window.title() == "Персональные данные МЧД: MCHD-001-A"
+        assert card.window.title().startswith("Карточка МЧД — ")
         assert card.window.winfo_exists()
     finally:
         root.destroy()

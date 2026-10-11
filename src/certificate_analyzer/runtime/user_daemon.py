@@ -91,6 +91,8 @@ def run_writer(settings):
             finally:
                 stop.set()
                 thread.join()
+                # Wait for active IPC commands before disposing the database.
+                server.server_close()
                 worker.close()
                 for sig, handler in previous.items():
                     signal.signal(sig, handler)

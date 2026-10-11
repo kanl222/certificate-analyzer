@@ -1,3 +1,4 @@
+from certificate_analyzer.presentation.gui.widgets.table_sort import TreeviewSorter
 import tkinter as tk
 from datetime import timezone, datetime
 from tkinter import messagebox, ttk
@@ -111,6 +112,8 @@ class NotificationHistory:
         self.history_tree.heading("Тип", text="Тип")
         self.history_tree.heading("Сообщение", text="Сообщение")
 
+        self.sorter = TreeviewSorter(self.history_tree, kinds={"Время": "date"})
+
         self.history_tree.column("Время", width=140, anchor=tk.W)
         self.history_tree.column("Тип", width=100, anchor=tk.CENTER)
         self.history_tree.column("Сообщение", width=420, anchor=tk.W)
@@ -176,6 +179,8 @@ class NotificationHistory:
                 values=(notif.get("time", ""), display_type, notif.get("message", "")),
                 tags=(tag,),
             )
+
+        self.sorter.apply()
 
     def clear_history(self):
         if messagebox.askyesno("Подтверждение", "Очистить всю историю уведомлений?"):

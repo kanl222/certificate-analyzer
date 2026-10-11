@@ -65,8 +65,7 @@ def test_windows_reveal_file(tmp_path: Path):
         manager.reveal_file(test_file)
         mock_popen.assert_called_once()
         args = mock_popen.call_args[0][0]
-        assert args[0] == "explorer.exe"
-        assert f"/select,{test_file.resolve()}" in args[1]
+        assert args == f'explorer.exe /select,"{test_file.resolve()}"'
 
 
 def test_windows_move_to_trash(tmp_path: Path):

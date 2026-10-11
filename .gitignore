@@ -16,8 +16,19 @@ packaging/linux/output/
 .venv
 .venv-linux
 .pytest-tmp/
+.pytest-tmp*/
+.pytest_tmp/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.bugfix-tests-*/
+.codex-agent-runs/
 .security-test-tmp*/
 .encryption-test-tmp/
 .transfer-test-tmp/
@@ -34,14 +45,43 @@ packaging/linux/output/
 .clipboard-test-*/
 scratch/*
 *.db
+*.db-*
+*.db.*
+*.sqlite
+*.sqlite-*
+*.sqlite.*
+*.sqlite3
+*.sqlite3-*
+*.sqlite3.*
+*.ipc-token*
+*.cat
 MEMORY.md
 *.log
+*.log.*
 *.key
+*.pfx
+*.p12
 *.pem
 *.crt
 *.xlsx
 .githooks/pre-commit
 test_mchd/*
+/test_certs/
 
 
 reports/*
+
+# Local credentials and environment overrides
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# Editor and operating-system caches
+.vs/
+*.suo
+*.user
+.DS_Store
+Thumbs.db
+Desktop.ini

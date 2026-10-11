@@ -1,5 +1,6 @@
 """SQLAlchemy-модель заявок на получение сертификатов."""
 
+from certificate_analyzer.domain.services.clock import utc_now
 from datetime import datetime
 from typing import TYPE_CHECKING
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
@@ -30,8 +31,8 @@ class CertificateRequestModel(Base):
         nullable=True,
     )
     comment: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 
     employee: Mapped["EmployeeModel | None"] = relationship(back_populates="requests")
     certificate: Mapped["CertificateModel | None"] = relationship(back_populates="requests")

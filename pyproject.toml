@@ -15,14 +15,14 @@ dependencies = [
     "defusedxml>=0.7",
     "sqlalchemy>=2.0.54",
     "concurrent-log-handler>=0.9.28",
+    "pywin32>=306; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
 gui = ["pyperclip>=1.8"]
 windows = [
-    "pywin32>=306; sys_platform == 'win32'",
     "win10toast>=0.9; sys_platform == 'win32'",
-    # win10toast 0.9 imports pkg_resources, removed in newer setuptools.
+    # win10toast 0.9 импортирует pkg_resources, удаленный в новых версиях setuptools.
     "setuptools<81; sys_platform == 'win32'",
 ]
 

@@ -4,7 +4,7 @@ import json
 import logging
 import urllib.error
 import urllib.request
-from datetime import datetime
+from certificate_analyzer.domain.services.clock import utc_now
 from typing import Any
 from uuid import uuid4
 
@@ -46,7 +46,7 @@ class ApiNotificationBackend(NotificationBackend):
             "title": title,
             "message": message,
             "type": notification_type,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": utc_now().isoformat().replace("+00:00", "Z"),
             "source": "certificate-analyzer",
             "metadata": kwargs,
         }

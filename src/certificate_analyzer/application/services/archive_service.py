@@ -52,17 +52,20 @@ class ArchiveService:
         self._writable()
         with closing(sqlite3.connect(self.app.database.path)) as connection:
             connection.row_factory = sqlite3.Row
+            employees = _rows(connection, "employees")
+            employee_names = {row["id"]: row["full_name"] for row in employees}
             return {
-                "certificates": [{"id": row["fingerprint_sha256"], "label": f"{row['subject']} — {row['original_name'] or row['fingerprint_sha256']}", "employee_id": row["employee_id"]} for row in _rows(connection, "certificates")],
-                "employees": [{"id": row["id"], "label": f"{row['full_name']} — {row['department'] or 'Без подразделения'}"} for row in _rows(connection, "employees")],
-                "mchds": [{"id": row["unified_number"], "label": f"{row['unified_number']} — {row['representative_fio']}"} for row in _rows(connection, "mchds")],
+                "certificates": [{**{key: row[key] for key in ("subject", "original_name", "valid_from", "valid_to", "issuer", "serial_number", "department", "status", "employee_id")}, "id": row["fingerprint_sha256"], "label": f"{row['subject']} — {row['original_name'] or row['fingerprint_sha256']}"} for row in _rows(connection, "certificates")],
+                "employees": [{**{key: row[key] for key in ("id", "full_name", "department", "position", "email")}, "label": f"{row['full_name']} — {row['department'] or 'Без подразделения'}"} for row in employees],
+                "mchds": [{**{key: row[key] for key in ("representative_fio", "principal_name", "valid_to", "status")}, "id": row["unified_number"], "label": f"{row['unified_number']} — {row['representative_fio']}"} for row in _rows(connection, "mchds")],
+                "requests": [{**{key: row[key] for key in ("id", "request_number", "employee_id", "department", "status", "submitted_at", "certificate_fingerprint")}, "employee": employee_names.get(row["employee_id"], "—"), "label": row["request_number"]} for row in _rows(connection, "certificate_requests")],
             }
 
     def export(self, destination, password, categories=None, record_ids=None):
         self._writable()
-        categories = ["certificates", "employees", "mchds"] if categories is None else categories
-        if not set(categories) <= {"certificates", "employees", "mchds"}:
-            raise ArchiveError("Экспорт поддерживает сертификаты, сотрудников и МЧД")
+        categories = ["certificates", "employees", "mchds", "requests"] if categories is None else categories
+        if not set(categories) <= {"certificates", "employees", "mchds", "requests"}:
+            raise ArchiveError("Экспорт поддерживает сертификаты, сотрудников, МЧД и заявки")
         path = export_archive(self.app.database.path, self.app.certificates.storage.folder, Path(destination), password,
                               categories=categories, record_ids=record_ids, _writer_owned=True)
         return {"path": str(path)}

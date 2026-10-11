@@ -77,7 +77,7 @@ class EmployeeService:
         Returns:
             Employee: Найденный или вновь созданный сотрудник.
         """
-        existing = self.find_by_name(full_name)
+        existing = self.repository.find_by_name(full_name, department=department)
         if existing:
             return existing
         return self.save_employee(

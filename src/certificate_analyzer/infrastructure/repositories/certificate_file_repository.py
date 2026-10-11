@@ -1,6 +1,7 @@
 """Репозиторий для управления записями файлов сертификатов в SQLite."""
 
-from datetime import datetime
+from certificate_analyzer.domain.services.clock import utc_now
+from certificate_analyzer.domain.services.certificate_status import utc
 from sqlalchemy import delete, select
 
 from certificate_analyzer.domain.models.certificate_file import CertificateFile
@@ -35,8 +36,8 @@ class CertificateFileRepository:
             fingerprint=model.fingerprint,
             file_name=model.file_name or "",
             size=model.size or 0,
-            first_seen_at=model.first_seen_at or datetime.utcnow(),
-            last_seen_at=model.last_seen_at or datetime.utcnow(),
+            first_seen_at=utc(model.first_seen_at) if model.first_seen_at else utc_now(),
+            last_seen_at=utc(model.last_seen_at) if model.last_seen_at else utc_now(),
             content_sha256=model.content_sha256 or "",
         )
 
@@ -49,7 +50,7 @@ class CertificateFileRepository:
         Returns:
             CertificateFile: Сохраненный файл.
         """
-        now = datetime.utcnow()
+        now = utc_now()
         with self.sessions.begin() as session:
             model = session.get(CertificateSourceModel, file_info.path)
             if not model:

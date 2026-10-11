@@ -10,7 +10,7 @@ from certificate_analyzer.infrastructure.mchd.xml_parser import (
 def test_namespaces_attribute_order_and_issuer(mchd_file):
     model = MchdXmlParser().parse(mchd_file())
     assert model.representative_fio == "Иванов Иван"
-    assert model.representative_inn == "222"
+    assert model.representative_inn == "770987654321"
     assert model.principal_name == "Организация & Ко"
 
 

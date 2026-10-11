@@ -4,6 +4,7 @@ import re
 from xml.etree.ElementTree import Element
 
 from certificate_analyzer.exceptions import MchdValidationError
+from certificate_analyzer.domain.models.mchd import MchdDocument
 from certificate_analyzer.infrastructure.mchd.xml_parser import find_element, get_value
 
 
@@ -62,11 +63,8 @@ class MchdValidator:
             errors.append("Отсутствует дата окончания действия доверенности")
 
         # 3. Проверка доверителя
-        principal = (
-            find_element(root, "Доверитель")
-            or find_element(root, "СвДоверит")
-            or find_element(root, "СвРосОрг")
-        )
+        principal = next((node for name in ("Доверитель", "СвДоверит", "СвРосОрг")
+                          if (node := find_element(root, name)) is not None), None)
         if principal is None:
             errors.append("В документе не найден блок сведений о доверителе")
         else:
@@ -75,14 +73,14 @@ class MchdValidator:
                 errors.append(f"Некорректный формат ИНН доверителя: {inn}")
 
         # 4. Проверка представителя
-        rep = (
-            find_element(root, "Представитель")
-            or find_element(root, "СвУполном")
-            or find_element(root, "СвУпПред")
-        )
+        rep = next((node for name in ("Представитель", "СвУполном", "СвУпПред")
+                    if (node := find_element(root, name)) is not None), None)
         if rep is None:
             errors.append("В документе не найден блок сведений о представителе")
         else:
+            inn = get_value(rep, "ИНН", "ИННФЛ")
+            if inn and not is_valid_inn(inn):
+                errors.append(f"Некорректный формат ИНН представителя: {inn}")
             snils = get_value(rep, "СНИЛС")
             if snils and not is_valid_snils(snils):
                 errors.append(f"Некорректный формат СНИЛС представителя: {snils}")
@@ -100,5 +98,27 @@ class MchdValidator:
             MchdValidationError: Если валидация выявила ошибки в документе.
         """
         errors = cls.validate_structure(root)
+        if errors:
+            raise MchdValidationError("; ".join(errors))
+
+    @staticmethod
+    def validate_document_or_raise(document: MchdDocument) -> None:
+        """Проверяет доменную модель МЧД при сохранении без XML-источника."""
+        errors = []
+        if not document.unified_number.strip():
+            errors.append("Отсутствует номер доверенности")
+        if not document.valid_from or not document.valid_to:
+            errors.append("Отсутствуют даты действия доверенности")
+        elif document.valid_to < document.valid_from:
+            errors.append("Дата окончания МЧД раньше даты выдачи")
+        if not document.principal_name.strip() or not document.principal_inn.strip():
+            errors.append("Отсутствуют сведения о доверителе")
+        if not document.representative_fio.strip():
+            errors.append("Отсутствуют сведения о представителе")
+        for label, inn in (("доверителя", document.principal_inn), ("представителя", document.representative_inn)):
+            if inn and not is_valid_inn(inn):
+                errors.append(f"Некорректный формат ИНН {label}: {inn}")
+        if document.representative_snils and not is_valid_snils(document.representative_snils):
+            errors.append("Некорректный формат СНИЛС представителя")
         if errors:
             raise MchdValidationError("; ".join(errors))

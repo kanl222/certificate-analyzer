@@ -1,6 +1,6 @@
 """Сервис приложения для аудита операций и событий безопасности."""
 
-from datetime import datetime
+from certificate_analyzer.domain.services.clock import utc_now
 
 from certificate_analyzer.domain.models.audit_event import AuditEvent
 from certificate_analyzer.infrastructure.repositories.audit_repository import (
@@ -44,7 +44,7 @@ class AuditService:
             entity_type=entity_type,
             entity_id=str(entity_id),
             description=description,
-            created_at=datetime.utcnow(),
+            created_at=utc_now(),
             details=details or {},
         )
         return self.repository.save(event)

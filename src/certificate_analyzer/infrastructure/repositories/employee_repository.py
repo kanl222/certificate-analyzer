@@ -56,9 +56,8 @@ class EmployeeRepository:
             if employee.id:
                 model = session.get(EmployeeModel, employee.id)
             else:
-                model = session.scalars(
-                    select(EmployeeModel).where(EmployeeModel.full_name == employee.full_name)
-                ).first()
+                # Новая запись не имеет идентификатора; одно лишь имя не является уникальным ключом.
+                model = None
 
             if not model:
                 model = EmployeeModel(
@@ -76,6 +75,7 @@ class EmployeeRepository:
                 session.add(model)
                 session.flush()
             else:
+                model.full_name = employee.full_name
                 model.department = employee.department or model.department
                 model.office = employee.office or model.office
                 if phones_str:
@@ -104,7 +104,7 @@ class EmployeeRepository:
             model = session.get(EmployeeModel, employee_id)
             return self._to_domain(model) if model else None
 
-    def find_by_name(self, full_name: str) -> Employee | None:
+    def find_by_name(self, full_name: str, department: str | None = None) -> Employee | None:
         """Находит сотрудника по точному ФИО.
 
         Args:
@@ -114,10 +114,13 @@ class EmployeeRepository:
             Employee | None: Сотрудник или None.
         """
         with self.sessions() as session:
-            model = session.scalars(
-                select(EmployeeModel).where(EmployeeModel.full_name == full_name.strip())
-            ).first()
-            return self._to_domain(model) if model else None
+            statement = select(EmployeeModel).where(EmployeeModel.full_name == full_name.strip())
+            if department:
+                statement = statement.where(EmployeeModel.department == department)
+            models = session.scalars(
+                statement
+            ).all()
+            return self._to_domain(models[0]) if len(models) == 1 else None
 
     def list_all(self, search: str | None = None) -> list[Employee]:
         """Возвращает список всех сотрудников.

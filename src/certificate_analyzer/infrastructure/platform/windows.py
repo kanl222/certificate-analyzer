@@ -59,7 +59,8 @@ class WindowsPlatformFileManager:
         p = Path(path).resolve()
         if not p.exists():
             raise FileNotFoundError(f"Файл для показа в проводнике не найден: {p}")
-        subprocess.Popen(["explorer.exe", f"/select,{p}"])
+        # Проводник сам обрабатывает параметр /select; экранируем путь кавычками в командной строке.
+        subprocess.Popen(f'explorer.exe /select,"{p}"')
 
     def move_to_trash(self, path: str | Path) -> bool:
         """Перемещает файл или каталог в Корзину Windows.

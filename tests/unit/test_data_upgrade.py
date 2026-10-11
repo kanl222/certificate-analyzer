@@ -85,6 +85,48 @@ def test_failed_migration_never_publishes_copy(application, tmp_path, monkeypatc
     assert source.read_bytes() == original
 
 
+def test_failed_migration_closes_open_sqlite_handle(application, tmp_path, monkeypatch):
+    from certificate_analyzer.infrastructure.database import data_upgrade
+
+    def fail(engine, path):
+        with engine.begin() as connection:
+            connection.exec_driver_sql("SELECT count(*) FROM sqlite_master")
+            raise ValueError("migration with open handle failed")
+
+    monkeypatch.setattr(data_upgrade, "migrate", fail)
+    with pytest.raises(ValueError, match="open handle"):
+        upgrade_database_copy(Path(application.settings.database_path), tmp_path / "failed.db")
+    assert not list(tmp_path.glob("ca-upgrade-*"))
+
+
+def test_publication_does_not_overwrite_concurrently_created_file(application, tmp_path, monkeypatch):
+    from certificate_analyzer.infrastructure.database import data_upgrade
+    destination = tmp_path / "existing.db"
+    migrate = data_upgrade.migrate
+
+    def migrate_and_create(engine, path):
+        migrate(engine, path)
+        destination.write_bytes(b"concurrent file")
+
+    monkeypatch.setattr(data_upgrade, "migrate", migrate_and_create)
+    with pytest.raises(FileExistsError):
+        upgrade_database_copy(Path(application.settings.database_path), destination)
+    assert destination.read_bytes() == b"concurrent file"
+
+
+def test_failed_publication_leaves_no_empty_destination(application, tmp_path, monkeypatch):
+    from certificate_analyzer.infrastructure.database import data_upgrade
+
+    def fail(*args):
+        raise OSError("publication failed")
+
+    monkeypatch.setattr(data_upgrade.os, "replace", fail)
+    destination = tmp_path / "failed.db"
+    with pytest.raises(OSError, match="publication failed"):
+        upgrade_database_copy(Path(application.settings.database_path), destination)
+    assert not destination.exists()
+
+
 def test_import_older_archive_upgrades_before_publication(application, certificate_file, tmp_path):
     import io
     import os

@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from certificate_analyzer.domain.enums.mchd_status import MchdStatus
@@ -180,6 +180,8 @@ class MchdRepository:
         search: str | None = None,
         authority_code: str | None = None,
         status: MchdStatus | None = None,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[MchdDocument]:
         """Возвращает список МЧД с фильтрацией по поисковой строке, коду полномочия и статусу.
 
@@ -191,33 +193,35 @@ class MchdRepository:
         Returns:
             list[MchdDocument]: Отфильтрованный список доверенностей.
         """
+        if offset < 0 or (limit is not None and limit < 0):
+            raise ValueError("Лимит и смещение не могут быть отрицательными")
         with self._read_session() as session:
-            stmt = select(MchdModel).order_by(MchdModel.valid_to.desc())
+            stmt = select(MchdModel).order_by(MchdModel.valid_to.desc(), MchdModel.unified_number)
 
             if status is not None:
                 stmt = stmt.where(MchdModel.status == status.name)
 
             if authority_code and authority_code.strip():
-                stmt = stmt.join(MchdModel.authorities).where(
+                stmt = stmt.where(MchdModel.authorities.any(
                     MchdAuthorityModel.code == authority_code.strip()
-                )
-
-            models = session.scalars(stmt).unique().all()
+                ))
 
             if search and search.strip():
                 term = search.strip().casefold()
-                return [
-                    self._to_domain(m)
-                    for m in models
-                    if term in (m.unified_number or "").casefold()
-                    or term in (m.principal_name or "").casefold()
-                    or term in (m.principal_inn or "").casefold()
-                    or term in (m.representative_fio or "").casefold()
-                    or term in (m.representative_inn or "").casefold()
-                    or term in (m.representative_snils or "").casefold()
-                    or term in (m.internal_number or "").casefold()
-                ]
+                # SQLite lower()/NOCASE приводят к нижнему регистру только ASCII. Регистрируем Unicode casefold
+                # для данного соединения, чтобы поиск по русским строкам сохранял ожидаемое поведение.
+                connection = session.connection().connection.driver_connection
+                connection.create_function("ca_casefold", 1, lambda value: (value or "").casefold(), deterministic=True)
+                stmt = stmt.where(or_(*(func.ca_casefold(column).contains(term, autoescape=True)
+                                       for column in (MchdModel.unified_number, MchdModel.principal_name,
+                                                      MchdModel.principal_inn, MchdModel.representative_fio,
+                                                      MchdModel.representative_inn, MchdModel.representative_snils,
+                                                      MchdModel.internal_number))))
 
+            stmt = stmt.offset(offset)
+            if limit is not None:
+                stmt = stmt.limit(limit)
+            models = session.scalars(stmt).unique().all()
             return [self._to_domain(m) for m in models]
 
     def find_by_authority_code(self, code: str) -> list[MchdDocument]:
