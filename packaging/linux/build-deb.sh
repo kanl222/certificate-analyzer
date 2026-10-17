@@ -116,6 +116,7 @@ install -m 0644 "$SCRIPT_DIR/certificate-analyzer.service" \
 install -m 0644 "$PROJECT_ROOT/LICENSE" \
     "$PACKAGE_ROOT/usr/share/doc/certificate-analyzer/copyright"
 install -m 0755 "$SCRIPT_DIR/postinst" "$PACKAGE_ROOT/DEBIAN/postinst"
+install -m 0755 "$SCRIPT_DIR/preinst" "$PACKAGE_ROOT/DEBIAN/preinst"
 install -m 0755 "$SCRIPT_DIR/prerm" "$PACKAGE_ROOT/DEBIAN/prerm"
 install -m 0755 "$SCRIPT_DIR/postrm" "$PACKAGE_ROOT/DEBIAN/postrm"
 

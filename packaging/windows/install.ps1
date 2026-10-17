@@ -46,6 +46,22 @@ function Find-Python {
     return $null
 }
 
+# Остановить процесс из прежнего окружения до обновления его файлов.
+$ExistingPython = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
+if (Test-Path -LiteralPath $ExistingPython) {
+    Write-Host '==> Остановка фонового процесса прежней версии...'
+    $PreviousPythonPath = $env:PYTHONPATH
+    try {
+        $env:PYTHONPATH = Join-Path $ProjectRoot 'src'
+        & $ExistingPython -m certificate_analyzer worker --stop
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Не удалось остановить фоновый процесс. Обновление прервано.'
+        }
+    } finally {
+        $env:PYTHONPATH = $PreviousPythonPath
+    }
+}
+
 if (-not $ServiceOnly) {
     Write-Host "==> Проверка и установка пакетов Python..."
     if (Get-Command uv -ErrorAction SilentlyContinue) {

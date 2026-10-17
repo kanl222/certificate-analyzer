@@ -3,7 +3,7 @@
 from certificate_analyzer.domain.services.clock import utc_now
 from certificate_analyzer.domain.services.certificate_status import utc
 from datetime import datetime
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from certificate_analyzer.domain.enums.certificate_request_status import (
@@ -14,6 +14,8 @@ from certificate_analyzer.domain.models.employee import Employee
 from certificate_analyzer.infrastructure.database.models.certificate_requests import (
     CertificateRequestModel,
 )
+from certificate_analyzer.infrastructure.database.models.employees import EmployeeModel
+from certificate_analyzer.infrastructure.database.search import casefold_contains
 
 
 class CertificateRequestRepository:
@@ -94,6 +96,8 @@ class CertificateRequestRepository:
                         CertificateRequestModel.request_number == request.request_number
                     )
                 ).first()
+                if model is not None:
+                    raise ValueError(f"Заявка с номером {request.request_number} уже существует")
 
             status_str = request.status.value if isinstance(request.status, CertificateRequestStatus) else str(request.status)
 
@@ -168,6 +172,8 @@ class CertificateRequestRepository:
         status: CertificateRequestStatus | str | None = None,
         employee_id: int | None = None,
         search: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[CertificateRequest]:
         """Возвращает список заявок с опциональной фильтрацией.
 
@@ -179,29 +185,57 @@ class CertificateRequestRepository:
         Returns:
             list[CertificateRequest]: Список доменных сущностей заявок.
         """
+        if offset < 0 or (limit is not None and limit < 0):
+            raise ValueError("Лимит и смещение не могут быть отрицательными")
         with self.sessions() as session:
             stmt = select(CertificateRequestModel).options(
                 selectinload(CertificateRequestModel.employee)
-            ).order_by(CertificateRequestModel.created_at.desc())
+            ).outerjoin(EmployeeModel).order_by(
+                CertificateRequestModel.created_at.desc(), CertificateRequestModel.id.desc()
+            )
 
             if status:
                 status_val = status.value if isinstance(status, CertificateRequestStatus) else str(status)
                 stmt = stmt.where(CertificateRequestModel.status == status_val)
             if employee_id is not None:
                 stmt = stmt.where(CertificateRequestModel.employee_id == employee_id)
-
+            if search and search.strip():
+                stmt = stmt.where(self._search_condition(session, search))
+            if limit is not None:
+                stmt = stmt.limit(limit)
+            stmt = stmt.offset(offset)
             models = session.scalars(stmt).all()
-            domain_requests = [self._to_domain(m) for m in models]
-            if search:
-                search_lower = search.strip().casefold()
-                domain_requests = [
-                    r for r in domain_requests
-                    if (r.request_number and search_lower in r.request_number.casefold())
-                    or (r.department and search_lower in r.department.casefold())
-                    or (r.comment and search_lower in r.comment.casefold())
-                    or (r.employee and r.employee.full_name and search_lower in r.employee.full_name.casefold())
-                ]
-            return domain_requests
+            return [self._to_domain(m) for m in models]
+
+    @staticmethod
+    def _search_condition(session, search):
+        return casefold_contains(session, (
+            CertificateRequestModel.request_number,
+            CertificateRequestModel.department,
+            CertificateRequestModel.comment,
+            EmployeeModel.full_name,
+        ), search)
+
+    def count_by_status(self, status=None, search=None) -> dict[CertificateRequestStatus, int]:
+        with self.sessions() as session:
+            stmt = (
+                select(CertificateRequestModel.status, func.count())
+                .select_from(CertificateRequestModel)
+                .outerjoin(EmployeeModel)
+                .group_by(CertificateRequestModel.status)
+            )
+            if status is not None:
+                value = status.value if isinstance(status, CertificateRequestStatus) else str(status)
+                stmt = stmt.where(CertificateRequestModel.status == value)
+            if search and search.strip():
+                stmt = stmt.where(self._search_condition(session, search))
+            counts: dict[CertificateRequestStatus, int] = {}
+            for value, count in session.execute(stmt):
+                status_enum = CertificateRequestStatus._value2member_map_.get(
+                    value, CertificateRequestStatus.NOT_SUBMITTED
+                )
+                counts[status_enum] = counts.get(status_enum, 0) + count
+            return counts
 
     def update_status(
         self,
@@ -227,6 +261,8 @@ class CertificateRequestRepository:
                 return False
             model.status = status_val
             model.updated_at = now
+            if status_val == CertificateRequestStatus.SUBMITTED.value and model.submitted_at is None:
+                model.submitted_at = now
             if issued_at is not None:
                 model.issued_at = issued_at
             elif status_val == CertificateRequestStatus.ISSUED.value and not model.issued_at:

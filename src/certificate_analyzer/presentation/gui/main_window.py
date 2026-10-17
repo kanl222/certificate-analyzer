@@ -59,8 +59,15 @@ class CertificateAnalyzerApp:
             destroy_root: Уничтожать ли корневое окно при выходе из приложения.
         """
         self.root = root
-        self.app = application or create_application(config_path)
         self._owns_app = application is None
+        if application is None:
+            from certificate_analyzer.infrastructure.config.config_loader import load_settings
+            from certificate_analyzer.runtime.user_daemon import ensure_writer
+
+            settings = load_settings(config_path)
+            ensure_writer(settings)
+            application = create_application(settings=settings, read_only=True)
+        self.app = application
         self._destroy_root = destroy_root
         self.config_path = config_path
 
@@ -573,6 +580,7 @@ class CertificateAnalyzerApp:
         self.requests_view.show_create_dialog_for(
             employee.full_name,
             employee.department or "",
+            employee_id=employee.id,
         )
 
     def show_requests_tab(self) -> None:

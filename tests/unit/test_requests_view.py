@@ -104,3 +104,122 @@ def test_requests_view_create_dialog_autofill(application, monkeypatch):
         view.show_create_dialog_for(full_name="Семенов Семен")
     finally:
         root.destroy()
+
+
+@pytest.mark.skipif(
+    not os.environ.get("CERTIFICATE_ANALYZER_GUI_TEST"),
+    reason="GUI-тест отключен без флага окружения",
+)
+def test_create_employee_from_request(application):
+    """Новый сотрудник выбирается в заявке и сохраняется вместе со связью."""
+    import tkinter as tk
+    from tkinter import ttk
+
+    from certificate_analyzer.domain.enums.certificate_request_status import CertificateRequestStatus
+    from certificate_analyzer.presentation.gui.views.employees_view import EmployeeDialog
+    from certificate_analyzer.presentation.gui.views.requests_view import RequestsView
+
+    def descendants(widget):
+        for child in widget.winfo_children():
+            yield child
+            yield from descendants(child)
+
+    def button(widget, text):
+        return next(
+            child for child in descendants(widget)
+            if isinstance(child, ttk.Button) and child.cget("text") == text
+        )
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        view = RequestsView(root, application=application)
+        view.show_create_dialog()
+        dialog = next(child for child in view.winfo_children() if isinstance(child, tk.Toplevel))
+        errors = []
+
+        def fill_employee():
+            try:
+                editor = next(child for child in dialog.winfo_children() if isinstance(child, EmployeeDialog))
+                editor.entries["full_name"].set("Новый сотрудник")
+                editor.entries["department"].set("ИТ")
+                editor.entries["position"].set("Инженер")
+                editor._save()
+            except Exception as exc:
+                errors.append(exc)
+                for child in dialog.winfo_children():
+                    if isinstance(child, EmployeeDialog):
+                        child.destroy()
+
+        root.after(50, fill_employee)
+        button(dialog, "Создать сотрудника…").invoke()
+        assert not errors
+        assert dialog.grab_current() == dialog
+        combo = next(child for child in descendants(dialog) if isinstance(child, ttk.Combobox))
+        assert combo.get() == "Новый сотрудник"
+        assert "Новый сотрудник" in combo.cget("values")
+        button(dialog, "Создать заявку").invoke()
+
+        employee = application.employees.find_by_name("Новый сотрудник")
+        assert employee.position == "Инженер"
+        request = application.certificate_requests.list_requests()[0]
+        assert request.employee_id == employee.id
+        assert request.department == "ИТ"
+        assert request.status == CertificateRequestStatus.NOT_SUBMITTED
+        assert request.submitted_at is None
+    finally:
+        root.destroy()
+
+
+@pytest.mark.skipif(
+    not os.environ.get("CERTIFICATE_ANALYZER_GUI_TEST"),
+    reason="GUI-тест отключен без флага окружения",
+)
+@pytest.mark.parametrize("use_picker", [False, True])
+def test_request_keeps_selected_employee_id(application, monkeypatch, use_picker):
+    import tkinter as tk
+    from tkinter import ttk
+    from certificate_analyzer.presentation.gui.views import requests_view as module
+
+    first = application.employees.save_employee(Employee(full_name="Одинаковое ФИО", department="ИТ"))
+    application.employees.save_employee(Employee(full_name="Одинаковое ФИО", department="ИТ"))
+
+    def descendants(widget):
+        for child in widget.winfo_children():
+            yield child
+            yield from descendants(child)
+
+    def button(widget, text):
+        return next(child for child in descendants(widget) if isinstance(child, ttk.Button) and child.cget("text") == text)
+
+    def pick(picker):
+        picker.destroy()
+        return first
+
+    monkeypatch.setattr(module.EmployeePickerDialog, "show", pick)
+    errors = []
+    monkeypatch.setattr(module.messagebox, "showerror", lambda *args, **kwargs: errors.append(args))
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        view = module.RequestsView(root, application=application)
+        view.show_create_dialog_for(first.full_name, first.department, employee_id=first.id)
+        dialog = next(child for child in view.winfo_children() if isinstance(child, tk.Toplevel))
+        combo = next(child for child in descendants(dialog) if isinstance(child, ttk.Combobox))
+        if use_picker:
+            combo.set("Неизвестный сотрудник")
+            button(dialog, "Создать заявку").invoke()
+            assert errors
+            assert application.certificate_requests.list_requests() == []
+            errors.clear()
+            combo.set(first.full_name)
+            button(dialog, "Создать заявку").invoke()
+            assert errors
+            assert application.certificate_requests.list_requests() == []
+            errors.clear()
+            button(dialog, "Выбрать…").invoke()
+        button(dialog, "Создать заявку").invoke()
+        assert not errors
+        assert application.certificate_requests.list_requests()[0].employee_id == first.id
+    finally:
+        root.destroy()

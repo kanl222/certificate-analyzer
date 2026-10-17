@@ -41,6 +41,9 @@ mkdir -p "$top/RPMS/x86_64"
 printf 'test-package' > "$top/RPMS/x86_64/certificate-analyzer-test.rpm"
 ''', encoding="utf-8")
     mock.chmod(0o755)
+    rpm = commands / "rpm"
+    rpm.write_text('#!/bin/sh\n[ "$1" = -qip ] && [ -f "$2" ]\n', encoding="utf-8")
+    rpm.chmod(0o755)
     env = os.environ.copy()
     env["RPM_TEST_LOG"] = (tmp_path / "calls.txt").as_posix()
     env["TEST_COMMANDS"] = commands.as_posix()

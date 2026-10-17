@@ -80,7 +80,7 @@ def test_real_application_can_read_restored_profile(application, certificate_fil
     application.certificates.import_files([certificate_file()])
     backup = export_archive(application.settings.database_path, application.settings.storage_folder, tmp_path / "real.cat", "long-secret-password")
     settings = import_archive(backup, tmp_path / "real-restored", "long-secret-password")
-    with create_application(settings=load_settings(settings), read_only=True) as restored:
+    with create_application(settings=load_settings(settings)) as restored:
         certificates = restored.certificates.list()
         assert len(certificates) == len(application.certificates.list()) == 1
         from pathlib import Path

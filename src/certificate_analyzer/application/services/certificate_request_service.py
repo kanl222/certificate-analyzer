@@ -41,7 +41,7 @@ class CertificateRequestService:
         department: str = "",
         needs_signature: bool = True,
         comment: str = "",
-        status: CertificateRequestStatus = CertificateRequestStatus.SUBMITTED,
+        status: CertificateRequestStatus = CertificateRequestStatus.NOT_SUBMITTED,
     ) -> CertificateRequest:
         """Создает новую заявку на выпуск сертификата.
 
@@ -65,6 +65,9 @@ class CertificateRequestService:
             if emp:
                 employee_id = emp.id
                 department = department or (emp.department or "")
+
+        if full_name and not employee_id:
+            raise ValueError("Выберите сотрудника из справочника или создайте нового сотрудника")
 
         req = CertificateRequest(
             request_number=request_number,
@@ -128,6 +131,8 @@ class CertificateRequestService:
         status: CertificateRequestStatus | str | None = None,
         employee_id: int | None = None,
         search: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[CertificateRequest]:
         """Возвращает список заявок с фильтрацией.
 
@@ -139,7 +144,13 @@ class CertificateRequestService:
         Returns:
             list[CertificateRequest]: Список заявок.
         """
-        return self.repository.list(status=status, employee_id=employee_id, search=search)
+        return self.repository.list(
+            status=status, employee_id=employee_id, search=search,
+            limit=limit, offset=offset,
+        )
+
+    def count_by_status(self, status=None, search=None) -> dict[CertificateRequestStatus, int]:
+        return self.repository.count_by_status(status=status, search=search)
 
     def delete_request(self, request_id: int) -> bool:
         """Удаляет заявку.

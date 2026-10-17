@@ -5,6 +5,17 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl --global enable certificate-analyzer.service >/dev/null 2>&1 || true
 fi
 
+if [ "${1:-}" = "configure" ] && [ -n "${2:-}" ] && command -v loginctl >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1; then
+    loginctl list-users --no-legend --no-pager 2>/dev/null | while read -r uid username rest; do
+        case "$uid" in ''|*[!0-9]*) continue ;; esac
+        [ -d "/run/user/$uid" ] || continue
+        runuser -u "$username" -- env XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user daemon-reload >/dev/null 2>&1 || :
+        if runuser -u "$username" -- env XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user is-enabled --quiet certificate-analyzer.service >/dev/null 2>&1; then
+            runuser -u "$username" -- env XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user start certificate-analyzer.service >/dev/null 2>&1 || :
+        fi
+    done
+fi
+
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
 fi

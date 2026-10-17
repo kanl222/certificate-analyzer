@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source "$(dirname "$0")/daemon-process.sh"
 
 PURGE_DATA=0
 
@@ -34,6 +35,21 @@ for unit in certificate-analyzer.service cert-analyzer.service; do
         systemctl --user stop "$unit" || true
         systemctl --user disable "$unit" || true
     fi
+done
+daemon_executable=""
+if command -v certificate-analyzer >/dev/null 2>&1; then
+    daemon_executable="$(command -v certificate-analyzer)"
+elif [ -x "$(dirname "$0")/../../.venv/bin/certificate-analyzer" ]; then
+    daemon_executable="$(dirname "$0")/../../.venv/bin/certificate-analyzer"
+fi
+if [ -n "$daemon_executable" ]; then
+    "$daemon_executable" worker --stop >/dev/null 2>&1 || true
+    if daemon_is_running "$daemon_executable"; then
+        echo "Ошибка: фоновый процесс не остановился; удаление прервано." >&2
+        exit 1
+    fi
+fi
+for unit in certificate-analyzer.service cert-analyzer.service; do
     # Удаляем только файл/символическую ссылку конкретной службы, без рекурсии.
     if [ -f "$service_dir/$unit" ] || [ -L "$service_dir/$unit" ]; then
         rm -f -- "$service_dir/$unit"

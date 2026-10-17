@@ -204,3 +204,37 @@ def test_employee_dialog_validation(monkeypatch):
         assert saved_emp.phones == ["11-22", "33-44"]
     finally:
         root.destroy()
+
+
+def test_employee_details_can_be_cleared(application):
+    from datetime import date
+
+    employee = application.employees.save_employee(Employee(
+        full_name="Сотрудник", department="ИТ", position="Инженер",
+        office="1", phones=["123"], email="old@example.test",
+        inn="7701234567", snils="12345678901", birth_date=date(1990, 1, 1),
+    ))
+    fields = ("department", "position", "office", "email", "inn", "snils", "birth_date")
+    for field in fields:
+        setattr(employee, field, None)
+    employee.phones = []
+    application.employees.save_employee(employee)
+    stored = application.employees.get_employee(employee.id)
+    assert all(getattr(stored, field) is None for field in fields)
+    assert stored.phones == []
+    assert stored.full_name == "Сотрудник"
+
+
+def test_employee_search_and_pagination(application):
+    service = application.employees
+    service.save_employee(Employee(full_name="Ёлкин", email="100%local@test", is_management=True))
+    service.save_employee(Employee(full_name="Ёжов", department="ИТ"))
+    service.save_employee(Employee(full_name="Петров", department="Отдел кадров"))
+
+    assert [e.full_name for e in service.list_employees(search="ё", limit=1, offset=1)] == ["Ёлкин"]
+    assert service.count_employees(search="ё") == 2
+    assert [e.full_name for e in service.list_employees(search="100%", limit=10)] == ["Ёлкин"]
+    assert service.count_employees(search="100_") == 0
+    assert [e.full_name for e in service.list_employees(search="руководитель")] == ["Ёлкин"]
+    with pytest.raises(ValueError):
+        service.list_employees(offset=-1)

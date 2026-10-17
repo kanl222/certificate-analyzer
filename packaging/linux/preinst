@@ -1,0 +1,24 @@
+#!/bin/sh
+set -e
+
+# The new package's preinst runs before replacing files from the old version.
+if [ "${1:-}" = "upgrade" ] && command -v loginctl >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1; then
+    loginctl list-users --no-legend --no-pager 2>/dev/null | while read -r uid username rest; do
+        case "$uid" in ''|*[!0-9]*) continue ;; esac
+        [ -d "/run/user/$uid" ] || continue
+        runuser -u "$username" -- env XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user stop certificate-analyzer.service >/dev/null 2>&1 || :
+        if [ -x /opt/certificate-analyzer/certificate-analyzer ]; then
+            runuser -u "$username" -- env XDG_RUNTIME_DIR="/run/user/$uid" /opt/certificate-analyzer/certificate-analyzer worker --stop >/dev/null 2>&1 || :
+        fi
+        if command -v pgrep >/dev/null 2>&1 && pgrep -u "$uid" -f '^(/opt/certificate-analyzer/certificate-analyzer|/usr/bin/certificate-analyzer) worker([[:space:]]|$)' >/dev/null; then
+            echo "Не удалось остановить фоновый процесс пользователя $username; обновление прервано." >&2
+            exit 1
+        fi
+    done || exit 1
+fi
+if [ "${1:-}" = "upgrade" ] && command -v pgrep >/dev/null 2>&1 && pgrep -f '^(/opt/certificate-analyzer/certificate-analyzer|/usr/bin/certificate-analyzer) worker([[:space:]]|$)' >/dev/null; then
+    echo 'Старый фоновый процесс ещё работает; обновление прервано.' >&2
+    exit 1
+fi
+
+exit 0

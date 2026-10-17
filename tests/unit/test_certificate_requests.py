@@ -74,7 +74,11 @@ def test_create_certificate_request(request_service: CertificateRequestService):
     assert req.request_number == "REQ-2026-001"
     assert req.department == "Бухгалтерия"
     assert req.needs_signature is True
-    assert req.status == CertificateRequestStatus.SUBMITTED
+    assert req.status == CertificateRequestStatus.NOT_SUBMITTED
+    assert req.submitted_at is None
+    stored = request_service.get_request(req.id)
+    assert stored.status == CertificateRequestStatus.NOT_SUBMITTED
+    assert stored.submitted_at is None
     assert req.comment == "Срочный выпуск подписи главного бухгалтера"
 
 
@@ -231,3 +235,55 @@ def test_employee_service_and_request_linking(sqlite_sessions):
     assert req.department == "Департамент безопасности"
     assert req.employee is not None
     assert req.employee.full_name == "Петров Петр Петрович"
+
+
+def test_duplicate_number_preserves_existing_request(request_service):
+    original = request_service.create_request(request_number="DUP", comment="Original", status=CertificateRequestStatus.ISSUED)
+    with pytest.raises(ValueError, match="уже существует"):
+        request_service.create_request(request_number="DUP", comment="Replacement")
+    stored = request_service.get_request(original.id)
+    assert stored.comment == "Original"
+    assert stored.status == CertificateRequestStatus.ISSUED
+    assert len(request_service.list_requests()) == 1
+
+
+def test_submission_date_is_set_once(request_service):
+    request = request_service.create_request()
+    assert request.submitted_at is None
+    request_service.update_status(request.id, CertificateRequestStatus.SUBMITTED)
+    submitted = request_service.get_request(request.id).submitted_at
+    assert submitted is not None
+    request_service.update_status(request.id, CertificateRequestStatus.NOT_SUBMITTED)
+    request_service.update_status(request.id, CertificateRequestStatus.SUBMITTED)
+    assert request_service.get_request(request.id).submitted_at == submitted
+
+
+def test_unknown_employee_is_not_silently_lost(request_service):
+    with pytest.raises(ValueError, match="создайте нового"):
+        request_service.create_request(full_name="Неизвестный сотрудник")
+    assert request_service.list_requests() == []
+
+
+def test_ambiguous_employee_requires_selection(request_service):
+    first = request_service.employees.save(Employee(full_name="Тёзка", department="ИТ"))
+    request_service.employees.save(Employee(full_name="Тёзка", department="Кадры"))
+    with pytest.raises(ValueError, match="Выберите сотрудника"):
+        request_service.create_request(full_name="Тёзка")
+    request = request_service.create_request(full_name="Тёзка", employee_id=first.id)
+    assert request.employee_id == first.id
+
+
+def test_request_search_and_pagination_keep_unicode_and_literal_wildcards(request_service):
+    employee = request_service.employees.save(Employee(full_name="Ёлкин", department="ИТ"))
+    request_service.create_request(request_number="R-1", employee_id=employee.id, comment="100% готово")
+    request_service.create_request(request_number="R-2", employee_id=employee.id, comment="100% готово")
+    request_service.create_request(request_number="R-3", comment="Другое")
+
+    matches = request_service.list_requests(search="ёЛкИн", limit=1, offset=1)
+    assert len(matches) == 1
+    assert matches[0].request_number == "R-1"
+    assert [r.request_number for r in request_service.list_requests(search="100%", limit=10)] == ["R-2", "R-1"]
+    assert request_service.list_requests(search="100_", limit=10) == []
+    assert request_service.count_by_status(search="ЁЛКИН") == {CertificateRequestStatus.NOT_SUBMITTED: 2}
+    with pytest.raises(ValueError):
+        request_service.list_requests(limit=-1)

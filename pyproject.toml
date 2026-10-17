@@ -1,6 +1,6 @@
 [project]
 name = "certificate-analyzer"
-version = "0.2.0"
+version = "0.2.5"
 description = "Анализатор сертификатов X.509 и машиночитаемых доверенностей"
 readme = "README.md"
 authors = [

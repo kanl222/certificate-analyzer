@@ -1,8 +1,9 @@
 """Репозиторий сотрудников организации на базе SQLAlchemy и SQLite."""
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 
 from certificate_analyzer.domain.models.employee import Employee
+from certificate_analyzer.infrastructure.database.search import casefold_contains
 from certificate_analyzer.infrastructure.database.models.employees import EmployeeModel
 
 
@@ -76,15 +77,14 @@ class EmployeeRepository:
                 session.flush()
             else:
                 model.full_name = employee.full_name
-                model.department = employee.department or model.department
-                model.office = employee.office or model.office
-                if phones_str:
-                    model.phones = phones_str
-                model.email = employee.email or model.email
-                model.position = employee.position or model.position
-                model.inn = employee.inn or model.inn
-                model.snils = employee.snils or model.snils
-                model.birth_date = employee.birth_date or model.birth_date
+                model.department = employee.department
+                model.office = employee.office
+                model.phones = phones_str
+                model.email = employee.email
+                model.position = employee.position
+                model.inn = employee.inn
+                model.snils = employee.snils
+                model.birth_date = employee.birth_date
                 model.is_management = employee.is_management
 
             session.flush()
@@ -122,7 +122,17 @@ class EmployeeRepository:
             ).all()
             return self._to_domain(models[0]) if len(models) == 1 else None
 
-    def list_all(self, search: str | None = None) -> list[Employee]:
+    def _search_condition(self, session, search):
+        condition = casefold_contains(session, (
+            EmployeeModel.full_name, EmployeeModel.department,
+            EmployeeModel.position, EmployeeModel.office,
+            EmployeeModel.phones, EmployeeModel.email,
+        ), search)
+        if search.strip().casefold() in ("руководство", "руководитель"):
+            condition = or_(condition, EmployeeModel.is_management.is_(True))
+        return condition
+
+    def list_all(self, search: str | None = None, *, limit: int | None = None, offset: int = 0) -> list[Employee]:
         """Возвращает список всех сотрудников.
 
         Args:
@@ -131,23 +141,24 @@ class EmployeeRepository:
         Returns:
             list[Employee]: Список сотрудников.
         """
+        if offset < 0 or (limit is not None and limit < 0):
+            raise ValueError("Лимит и смещение не могут быть отрицательными")
         with self.sessions() as session:
-            stmt = select(EmployeeModel).order_by(EmployeeModel.full_name)
-            models = session.scalars(stmt).all()
+            stmt = select(EmployeeModel).order_by(EmployeeModel.full_name, EmployeeModel.id)
             if search and search.strip():
-                term = search.strip().casefold()
-                return [
-                    self._to_domain(m)
-                    for m in models
-                    if term in (m.full_name or "").casefold()
-                    or term in (m.department or "").casefold()
-                    or term in (m.position or "").casefold()
-                    or term in (m.office or "").casefold()
-                    or term in (m.phones or "").casefold()
-                    or term in (m.email or "").casefold()
-                    or (term in ("руководство", "руководитель") and m.is_management)
-                ]
+                stmt = stmt.where(self._search_condition(session, search))
+            if limit is not None:
+                stmt = stmt.limit(limit)
+            stmt = stmt.offset(offset)
+            models = session.scalars(stmt).all()
             return [self._to_domain(m) for m in models]
+
+    def count(self, search: str | None = None) -> int:
+        with self.sessions() as session:
+            stmt = select(func.count()).select_from(EmployeeModel)
+            if search and search.strip():
+                stmt = stmt.where(self._search_condition(session, search))
+            return session.scalar(stmt) or 0
 
 
     def delete(self, employee_id: int) -> bool:
@@ -165,4 +176,3 @@ class EmployeeRepository:
                 return False
             session.delete(model)
             return True
-

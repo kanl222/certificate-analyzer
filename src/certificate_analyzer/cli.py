@@ -54,9 +54,8 @@ def main(argv=None) -> int:
 
         from certificate_analyzer.runtime.user_daemon import ensure_writer, run_writer
         if args.command == "worker" and args.stop:
-            from certificate_analyzer.runtime.ipc import WriteClient
-            from certificate_analyzer.infrastructure.database.session import get_database_path
-            WriteClient(get_database_path(settings)).call(method="stop")
+            from certificate_analyzer.runtime.user_daemon import stop_writer
+            stop_writer(settings)
             return 0
         if args.command == "worker" and not args.once:
             run_writer(settings)

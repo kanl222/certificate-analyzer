@@ -16,6 +16,7 @@ from certificate_analyzer.presentation.gui.styles import (
 )
 from certificate_analyzer.presentation.gui.widgets.table_state import EmptyStateLabel
 from certificate_analyzer.presentation.gui.views.dialogs.employee_picker import EmployeePickerDialog, _add_entry_context_menu
+from certificate_analyzer.presentation.gui.views.employees_view import EmployeeDialog
 
 REQUEST_COLUMNS = {
     "request_number": ("Номер заявки", 130),
@@ -40,6 +41,8 @@ REQUEST_STATUS_CHOICES = {
     "Аннулирована": CertificateRequestStatus.CANCELLED,
 }
 
+REQUEST_PAGE_SIZE = 100
+
 
 class RequestsView(ttk.Frame):
     """Виджет вкладки учета и управления заявками на выпуск сертификатов."""
@@ -63,8 +66,16 @@ class RequestsView(ttk.Frame):
         self.app = application
         self.on_message = on_message or (lambda _: None)
         self.requests: list[CertificateRequest] = []
+        self.offset = 0
+        self.search_after: str | None = None
         self._build_ui()
+        self.bind("<Destroy>", self._on_destroy)
         self.refresh()
+
+    def _on_destroy(self, event: tk.Event) -> None:
+        if event.widget is self and self.search_after:
+            self.after_cancel(self.search_after)
+            self.search_after = None
 
     def _build_ui(self) -> None:
         """Создает элементы управления, панель фильтров и таблицу заявок."""
@@ -122,7 +133,7 @@ class RequestsView(ttk.Frame):
             row=0, column=0, sticky="w"
         )
         self.search_var = tk.StringVar()
-        self.search_var.trace_add("write", lambda *_: self.refresh())
+        self.search_var.trace_add("write", self._search_changed)
         search_filter_entry = ttk.Entry(filters, textvariable=self.search_var, width=25)
         search_filter_entry.grid(row=0, column=1, sticky="ew", padx=(6, 12))
         _add_entry_context_menu(search_filter_entry)
@@ -139,7 +150,7 @@ class RequestsView(ttk.Frame):
             width=16,
         )
         status_combo.grid(row=0, column=3, padx=(0, 8))
-        status_combo.bind("<<ComboboxSelected>>", lambda _: self.refresh())
+        status_combo.bind("<<ComboboxSelected>>", lambda _: self.refresh(reset=True))
 
         ttk.Button(
             filters,
@@ -183,6 +194,15 @@ class RequestsView(ttk.Frame):
             table_frame,
             "Заявок пока нет\nСоздайте первую заявку на сертификат",
         )
+
+        page_bar = ttk.Frame(self, padding=(8, 4))
+        page_bar.pack(fill="x")
+        self.page_label = ttk.Label(page_bar)
+        self.page_label.pack(side="left")
+        self.next_button = ttk.Button(page_bar, text="Следующая ›", command=lambda: self.change_page(1))
+        self.next_button.pack(side="right", padx=(6, 0))
+        self.previous_button = ttk.Button(page_bar, text="‹ Предыдущая", command=lambda: self.change_page(-1))
+        self.previous_button.pack(side="right")
 
         # Подсветка статусов
         self.tree.tag_configure("in_progress", foreground="#0d6efd")
@@ -235,28 +255,44 @@ class RequestsView(ttk.Frame):
         """Сбрасывает установленные фильтры поиска и статуса."""
         self.search_var.set("")
         self.status_var.set("Все статусы")
+        self.refresh(reset=True)
+
+    def _search_changed(self, *_args) -> None:
+        if self.search_after:
+            self.after_cancel(self.search_after)
+        self.search_after = self.after(250, lambda: self.refresh(reset=True))
+
+    def change_page(self, direction: int) -> None:
+        self.offset = max(0, self.offset + direction * REQUEST_PAGE_SIZE)
         self.refresh()
 
-    def refresh(self) -> None:
+    def refresh(self, reset: bool = False) -> None:
         """Перезагружает список заявок из базы данных."""
         if not getattr(self.app, "certificate_requests", None):
             return
+        if self.search_after:
+            self.after_cancel(self.search_after)
+            self.search_after = None
+        if reset:
+            self.offset = 0
 
         status_enum = REQUEST_STATUS_CHOICES.get(self.status_var.get())
         search_query = self.search_var.get().strip() or None
 
+        counts = self.app.certificate_requests.count_by_status(status=status_enum, search=search_query)
+        total = sum(counts.values())
+        if self.offset >= total:
+            self.offset = max(0, (total - 1) // REQUEST_PAGE_SIZE * REQUEST_PAGE_SIZE)
         self.requests = self.app.certificate_requests.list_requests(
             status=status_enum,
             search=search_query,
+            limit=REQUEST_PAGE_SIZE,
+            offset=self.offset,
         )
 
         self.tree.delete(*self.tree.get_children())
-        counts = {s: 0 for s in CertificateRequestStatus}
 
         for req in self.requests:
-            if req.status in counts:
-                counts[req.status] += 1
-
             emp_name = req.employee.full_name if req.employee else (req.comment if not req.department else "—")
             sub_date = req.submitted_at.strftime("%d.%m.%Y") if req.submitted_at else "—"
             iss_date = req.issued_at.strftime("%d.%m.%Y") if req.issued_at else "—"
@@ -292,6 +328,9 @@ class RequestsView(ttk.Frame):
             )
 
         self.sorter.apply()
+        self.page_label.config(text=f"{self.offset + 1 if self.requests else 0}–{self.offset + len(self.requests)} из {total}")
+        self.previous_button.config(state="normal" if self.offset else "disabled")
+        self.next_button.config(state="normal" if self.offset + len(self.requests) < total else "disabled")
 
         if self.requests:
             self.empty_label.hide()
@@ -305,7 +344,7 @@ class RequestsView(ttk.Frame):
             )
 
         summary = (
-            f"Всего заявок: {len(self.requests)}   "
+            f"Всего заявок: {total}   "
             f"В работе: {counts.get(CertificateRequestStatus.IN_PROGRESS, 0)}   "
             f"Выпущено: {counts.get(CertificateRequestStatus.ISSUED, 0)}   "
             f"Обработано: {counts.get(CertificateRequestStatus.PROCESSED, 0)}"
@@ -317,6 +356,7 @@ class RequestsView(ttk.Frame):
         self,
         full_name: str,
         department: str = "",
+        employee_id: int | None = None,
     ) -> None:
         """Отображает диалог создания заявки с предустановленным сотрудником.
 
@@ -324,12 +364,13 @@ class RequestsView(ttk.Frame):
             full_name: Полное имя (ФИО) сотрудника.
             department: Подразделение сотрудника.
         """
-        self.show_create_dialog(initial_employee=full_name, initial_department=department)
+        self.show_create_dialog(initial_employee=full_name, initial_department=department, initial_employee_id=employee_id)
 
     def show_create_dialog(
         self,
         initial_employee: str = "",
         initial_department: str = "",
+        initial_employee_id: int | None = None,
     ) -> None:
         """Отображает диалоговое окно создания новой заявки с выбором сотрудника из списка.
 
@@ -339,13 +380,14 @@ class RequestsView(ttk.Frame):
         """
         dialog = tk.Toplevel(self)
         dialog.title("Новая заявка на сертификат")
-        dialog.geometry("540x360")
+        dialog.geometry("700x360")
         dialog.resizable(False, False)
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
 
         frame = ttk.Frame(dialog, padding=16)
         frame.pack(fill="both", expand=True)
+        frame.columnconfigure(1, weight=1)
 
         # Загрузка списка сотрудников из базы данных
         employees: list[Any] = []
@@ -366,19 +408,36 @@ class RequestsView(ttk.Frame):
             except Exception:
                 pass
 
-        emp_by_name = {
-            e.full_name.strip(): e
-            for e in employees
-            if getattr(e, "full_name", None) and e.full_name.strip()
-        }
-        emp_names = list(emp_by_name.keys())
+        emp_names = list(dict.fromkeys(e.full_name.strip() for e in employees if e.full_name.strip()))
 
         name_var = tk.StringVar(value=initial_employee)
         dept_var = tk.StringVar(value=initial_department)
 
-        # Если передан начальный сотрудник, пробуем автоматически подтянуть его подразделение
-        if initial_employee and initial_employee in emp_by_name and not initial_department:
-            dept_var.set(emp_by_name[initial_employee].department or "")
+        selected_employee = next((e for e in employees if e.id == initial_employee_id), None) if initial_employee_id is not None else None
+
+        def clear_selection(*_args):
+            nonlocal selected_employee
+            selected_employee = None
+
+        name_var.trace_add("write", clear_selection)
+
+        def select_employee(employee):
+            nonlocal selected_employee
+            name_var.set(employee.full_name)
+            dept_var.set(employee.department or "")
+            selected_employee = employee
+
+        def matching_employees():
+            return [e for e in employees if e.full_name.strip() == name_var.get().strip()]
+
+        if selected_employee is not None:
+            select_employee(selected_employee)
+        elif initial_employee:
+            matches = matching_employees()
+            if initial_department:
+                matches = [e for e in matches if e.department == initial_department]
+            if len(matches) == 1:
+                select_employee(matches[0])
 
         ttk.Label(frame, text="Сотрудник:").grid(row=0, column=0, sticky="w", pady=6)
         emp_box = ttk.Frame(frame)
@@ -394,29 +453,49 @@ class RequestsView(ttk.Frame):
         _add_entry_context_menu(emp_combo)
 
         def on_combo_selected(_event=None):
-            sel_name = name_var.get().strip()
-            if sel_name in emp_by_name:
-                emp = emp_by_name[sel_name]
-                if emp.department:
-                    dept_var.set(emp.department)
+            matches = matching_employees()
+            if len(matches) == 1:
+                select_employee(matches[0])
+            else:
+                clear_selection()
+                dept_var.set("")
 
         emp_combo.bind("<<ComboboxSelected>>", on_combo_selected)
 
         def open_picker():
             picker = EmployeePickerDialog(dialog, employees=employees)
             picked = picker.show()
+            dialog.grab_set()
             if picked:
-                name_var.set(picked.full_name)
-                if picked.department:
-                    dept_var.set(picked.department)
+                select_employee(picked)
 
-        if emp_names:
-            ttk.Button(
-                emp_box,
-                text="Выбрать…",
-                command=open_picker,
-                width=11,
-            ).pack(side="left", padx=(6, 0))
+        ttk.Button(
+            emp_box,
+            text="Выбрать…",
+            command=open_picker,
+            width=11,
+        ).pack(side="left", padx=(6, 0))
+
+        def create_employee():
+            def on_save(employee):
+                saved = self.app.employees.save_employee(employee)
+                employees.append(saved)
+                emp_combo.configure(values=list(dict.fromkeys(e.full_name.strip() for e in employees)))
+                select_employee(saved)
+
+            employee_dialog = EmployeeDialog(dialog, on_save=on_save)
+            employee_dialog.entries["full_name"].set(name_var.get().strip())
+            employee_dialog.entries["department"].set(dept_var.get().strip())
+            dialog.wait_window(employee_dialog)
+            if dialog.winfo_exists():
+                dialog.grab_set()
+
+        ttk.Button(
+            emp_box,
+            text="Создать сотрудника…",
+            command=create_employee,
+            state="normal" if getattr(self.app, "employees", None) else "disabled",
+        ).pack(side="left", padx=(6, 0))
 
         ttk.Label(frame, text="Подразделение:").grid(row=1, column=0, sticky="w", pady=6)
         dept_entry = ttk.Entry(frame, textvariable=dept_var, width=42)
@@ -445,8 +524,17 @@ class RequestsView(ttk.Frame):
                 messagebox.showwarning("Внимание", "Выберите или укажите ФИО сотрудника", parent=dialog)
                 return
             try:
+                employee = selected_employee
+                if employee is None:
+                    matches = matching_employees()
+                    if len(matches) > 1:
+                        raise ValueError("Найдено несколько сотрудников с таким ФИО. Нажмите «Выбрать…» и выберите нужного сотрудника")
+                    employee = matches[0] if matches else None
+                if employee is None or employee.id is None:
+                    raise ValueError("Выберите сотрудника из справочника или нажмите «Создать сотрудника…»")
                 self.app.certificate_requests.create_request(
                     request_number=num,
+                    employee_id=employee.id,
                     full_name=name,
                     department=dept,
                     comment=comm,
@@ -537,10 +625,6 @@ class RequestsView(ttk.Frame):
         frame = ttk.Frame(dialog, padding=16)
         frame.pack(fill="both", expand=True)
 
-        certificates = self.app.certificates.list(
-            CertificateQuery(limit=None, sort="subject")
-        )
-
         ttk.Label(frame, text="Выберите сертификат из хранилища:").pack(
             anchor="w",
             pady=(0, 6),
@@ -578,9 +662,37 @@ class RequestsView(ttk.Frame):
             "Сначала добавьте сертификат на одноимённой вкладке",
         )
         picker_sorter = TreeviewSorter(picker, kinds={"valid_to": "date"})
+        picker_offset = 0
+        picker_after: str | None = None
+        picker_page_size = 100
+        page_bar = ttk.Frame(frame)
+        page_bar.pack(fill="x", pady=(4, 0))
+        page_label = ttk.Label(page_bar)
+        page_label.pack(side="left")
+        next_button = ttk.Button(page_bar, text="Следующая ›")
+        next_button.pack(side="right", padx=(6, 0))
+        previous_button = ttk.Button(page_bar, text="‹ Предыдущая")
+        previous_button.pack(side="right")
 
-        def populate_picker(*_args) -> None:
-            query = search_var.get().strip().casefold()
+        def populate_picker(reset: bool = False) -> None:
+            nonlocal picker_offset, picker_after
+            if picker_after:
+                dialog.after_cancel(picker_after)
+                picker_after = None
+            if reset:
+                picker_offset = 0
+            query = CertificateQuery(
+                search=search_var.get().strip(), limit=picker_page_size,
+                offset=picker_offset, sort="subject",
+            )
+            total = self.app.certificates.statistics(query)["total"]
+            if picker_offset >= total:
+                picker_offset = max(0, (total - 1) // picker_page_size * picker_page_size)
+                query = CertificateQuery(
+                    search=query.search, limit=picker_page_size,
+                    offset=picker_offset, sort="subject",
+                )
+            certificates = self.app.certificates.list(query)
             picker.delete(*picker.get_children())
             for certificate in certificates:
                 row = certificate_to_dict(certificate)
@@ -590,9 +702,6 @@ class RequestsView(ttk.Frame):
                     row["valid_to"],
                     row["status"],
                 )
-                haystack = " ".join(str(value) for value in values).casefold()
-                if query and query not in haystack:
-                    continue
                 picker.insert(
                     "",
                     "end",
@@ -600,14 +709,38 @@ class RequestsView(ttk.Frame):
                     values=values,
                 )
             picker_sorter.apply()
+            page_label.config(text=f"{picker_offset + 1 if certificates else 0}–{picker_offset + len(certificates)} из {total}")
+            previous_button.config(state="normal" if picker_offset else "disabled")
+            next_button.config(state="normal" if picker_offset + len(certificates) < total else "disabled")
             if picker.get_children():
                 empty_label.hide()
-            elif query:
+            elif query.search:
                 empty_label.show("Сертификаты не найдены\nИзмените поисковый запрос")
             else:
                 empty_label.show()
 
-        search_var.trace_add("write", populate_picker)
+        def change_picker_page(direction: int) -> None:
+            nonlocal picker_offset
+            picker_offset = max(0, picker_offset + direction * picker_page_size)
+            populate_picker()
+
+        previous_button.config(command=lambda: change_picker_page(-1))
+        next_button.config(command=lambda: change_picker_page(1))
+
+        def schedule_picker_search(*_args) -> None:
+            nonlocal picker_after
+            if picker_after:
+                dialog.after_cancel(picker_after)
+            picker_after = dialog.after(250, lambda: populate_picker(reset=True))
+
+        def cancel_picker_search(event: tk.Event) -> None:
+            nonlocal picker_after
+            if event.widget is dialog and picker_after:
+                dialog.after_cancel(picker_after)
+                picker_after = None
+
+        dialog.bind("<Destroy>", cancel_picker_search)
+        search_var.trace_add("write", schedule_picker_search)
         populate_picker()
 
         current_request = next(
