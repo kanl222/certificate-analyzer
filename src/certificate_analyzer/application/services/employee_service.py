@@ -17,7 +17,7 @@ class EmployeeService:
         """
         self.repository = repository
 
-    def list_employees(self, search: str | None = None) -> list[Employee]:
+    def list_employees(self, search: str | None = None, *, limit: int | None = None, offset: int = 0) -> list[Employee]:
         """Возвращает список сотрудников с возможностью поиска.
 
         Args:
@@ -26,7 +26,10 @@ class EmployeeService:
         Returns:
             list[Employee]: Список найденных сотрудников.
         """
-        return self.repository.list_all(search=search)
+        return self.repository.list_all(search=search, limit=limit, offset=offset)
+
+    def count_employees(self, search: str | None = None) -> int:
+        return self.repository.count(search=search)
 
     def get_employee(self, employee_id: int) -> Employee | None:
         """Получает сотрудника по идентификатору.
@@ -98,5 +101,4 @@ class EmployeeService:
             bool: True, если сотрудник удален, иначе False.
         """
         return self.repository.delete(employee_id)
-
 

@@ -1,6 +1,31 @@
 #!/bin/sh
 set -e
 
+if [ "${1:-}" = "remove" ] || [ "${1:-}" = "deconfigure" ] || [ "${1:-}" = "upgrade" ]; then
+    if command -v loginctl >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1; then
+        loginctl list-users --no-legend --no-pager 2>/dev/null | while read -r uid username rest; do
+            case "$uid" in ''|*[!0-9]*) continue ;; esac
+            [ -d "/run/user/$uid" ] || continue
+            if [ "${1:-}" = "remove" ] || [ "${1:-}" = "deconfigure" ]; then
+                runuser -u "$username" -- env XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user disable --now certificate-analyzer.service >/dev/null 2>&1 || :
+            else
+                runuser -u "$username" -- env XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user stop certificate-analyzer.service >/dev/null 2>&1 || :
+            fi
+            if [ -x /opt/certificate-analyzer/certificate-analyzer ]; then
+                runuser -u "$username" -- env XDG_RUNTIME_DIR="/run/user/$uid" /opt/certificate-analyzer/certificate-analyzer worker --stop >/dev/null 2>&1 || :
+            fi
+            if command -v pgrep >/dev/null 2>&1 && pgrep -u "$uid" -f '^(/opt/certificate-analyzer/certificate-analyzer|/usr/bin/certificate-analyzer) worker([[:space:]]|$)' >/dev/null; then
+                echo "Не удалось остановить фоновый процесс пользователя $username; удаление или обновление прервано." >&2
+                exit 1
+            fi
+        done || exit 1
+    fi
+fi
+if command -v pgrep >/dev/null 2>&1 && pgrep -f '^(/opt/certificate-analyzer/certificate-analyzer|/usr/bin/certificate-analyzer) worker([[:space:]]|$)' >/dev/null; then
+    echo 'Фоновый процесс ещё работает; удаление или обновление прервано.' >&2
+    exit 1
+fi
+
 if [ "${1:-}" = "remove" ] || [ "${1:-}" = "deconfigure" ]; then
     if command -v systemctl >/dev/null 2>&1; then
         systemctl --global disable certificate-analyzer.service >/dev/null 2>&1 || true

@@ -216,3 +216,35 @@ def test_mchd_sort_heading_shows_direction(tk_root):
     assert view.tree.heading("full_name", "text").endswith("↑")
     view.sort_column("full_name")
     assert view.tree.heading("full_name", "text").endswith("↓")
+
+
+def test_requests_and_employees_show_database_pages(application, tk_root):
+    from certificate_analyzer.infrastructure.database.models.employees import EmployeeModel
+    from certificate_analyzer.infrastructure.database.models.certificate_requests import CertificateRequestModel
+    from certificate_analyzer.presentation.gui.views.employees_view import EmployeesView
+    from certificate_analyzer.presentation.gui.views.requests_view import RequestsView
+
+    with application.database.sessions.begin() as session:
+        session.add_all(EmployeeModel(full_name=f"Сотрудник {number:03d}") for number in range(101))
+        session.add_all(CertificateRequestModel(request_number=f"REQ-PAGE-{number:03d}") for number in range(101))
+
+    employees = EmployeesView(tk_root, application=application)
+    requests = RequestsView(tk_root, application=application)
+    assert len(employees.tree.get_children()) == 100
+    assert len(requests.tree.get_children()) == 100
+    assert employees.page_label.cget("text") == "1–100 из 101"
+    assert requests.page_label.cget("text") == "1–100 из 101"
+
+    employees.next_button.invoke()
+    requests.next_button.invoke()
+    assert len(employees.tree.get_children()) == 1
+    assert len(requests.tree.get_children()) == 1
+    assert employees.page_label.cget("text") == "101–101 из 101"
+    assert requests.page_label.cget("text") == "101–101 из 101"
+
+    employees.search_var.set("Сотрудник 000")
+    employees.refresh(reset=True)
+    requests.search_var.set("REQ-PAGE-000")
+    requests.refresh(reset=True)
+    assert employees.page_label.cget("text") == "1–1 из 1"
+    assert requests.page_label.cget("text") == "1–1 из 1"

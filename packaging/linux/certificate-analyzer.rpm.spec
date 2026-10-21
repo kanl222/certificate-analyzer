@@ -1,4 +1,4 @@
-%{!?pkg_version:%global pkg_version 0.2.0}
+%{!?pkg_version:%global pkg_version 0.2.5}
 %{!?pkg_release:%global pkg_release 1}
 %{!?altlinux:%global altlinux 0}
 
@@ -57,9 +57,40 @@ install -m 0644 "%{project_root}/packaging/linux/certificate-analyzer.service" "
 install -m 0644 "%{project_root}/src/certificate_analyzer/assets/app-icon.png" "%{buildroot}/usr/share/icons/hicolor/256x256/apps/certificate-analyzer.png"
 install -m 0644 "%{project_root}/LICENSE" "%{buildroot}/usr/share/doc/certificate-analyzer/LICENSE"
 
+%pre
+# On upgrade this runs before RPM replaces the old executable.
+if [ "$1" -gt 1 ] && command -v loginctl >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1; then
+    loginctl list-users --no-legend --no-pager 2>/dev/null | while read -r uid username rest; do
+        case "$uid" in ''|*[!0-9]*) continue ;; esac
+        [ -d "/run/user/$uid" ] || continue
+        runuser -u "$username" -- env XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user stop certificate-analyzer.service >/dev/null 2>&1 || :
+        if [ -x /opt/certificate-analyzer/certificate-analyzer ]; then
+            runuser -u "$username" -- env XDG_RUNTIME_DIR="/run/user/$uid" /opt/certificate-analyzer/certificate-analyzer worker --stop >/dev/null 2>&1 || :
+        fi
+        if command -v pgrep >/dev/null 2>&1 && pgrep -u "$uid" -f '^(/opt/certificate-analyzer/certificate-analyzer|/usr/bin/certificate-analyzer) worker([[:space:]]|$)' >/dev/null; then
+            echo "Не удалось остановить фоновый процесс пользователя $username; обновление прервано." >&2
+            exit 1
+        fi
+    done || exit 1
+fi
+if [ "$1" -gt 1 ] && command -v pgrep >/dev/null 2>&1 && pgrep -f '^(/opt/certificate-analyzer/certificate-analyzer|/usr/bin/certificate-analyzer) worker([[:space:]]|$)' >/dev/null; then
+    echo 'Старый фоновый процесс ещё работает; обновление прервано.' >&2
+    exit 1
+fi
+
 %post
 if command -v systemctl >/dev/null 2>&1; then
     systemctl --global enable certificate-analyzer.service >/dev/null 2>&1 || :
+fi
+if [ "$1" -gt 1 ] && command -v loginctl >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1; then
+    loginctl list-users --no-legend --no-pager 2>/dev/null | while read -r uid username rest; do
+        case "$uid" in ''|*[!0-9]*) continue ;; esac
+        [ -d "/run/user/$uid" ] || continue
+        runuser -u "$username" -- env XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user daemon-reload >/dev/null 2>&1 || :
+        if runuser -u "$username" -- env XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user is-enabled --quiet certificate-analyzer.service >/dev/null 2>&1; then
+            runuser -u "$username" -- env XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user start certificate-analyzer.service >/dev/null 2>&1 || :
+        fi
+    done
 fi
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database /usr/share/applications >/dev/null 2>&1 || :
@@ -71,8 +102,28 @@ fi
 
 %preun
 # RPM passes 0 for removal and 1 for replacement during an upgrade.
-if [ "$1" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
-    systemctl --global disable certificate-analyzer.service >/dev/null 2>&1 || :
+if [ "$1" -eq 0 ]; then
+    if command -v loginctl >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1; then
+        loginctl list-users --no-legend --no-pager 2>/dev/null | while read -r uid username rest; do
+            case "$uid" in ''|*[!0-9]*) continue ;; esac
+            [ -d "/run/user/$uid" ] || continue
+            runuser -u "$username" -- env XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user disable --now certificate-analyzer.service >/dev/null 2>&1 || :
+            if [ -x /opt/certificate-analyzer/certificate-analyzer ]; then
+                runuser -u "$username" -- env XDG_RUNTIME_DIR="/run/user/$uid" /opt/certificate-analyzer/certificate-analyzer worker --stop >/dev/null 2>&1 || :
+            fi
+            if command -v pgrep >/dev/null 2>&1 && pgrep -u "$uid" -f '^(/opt/certificate-analyzer/certificate-analyzer|/usr/bin/certificate-analyzer) worker([[:space:]]|$)' >/dev/null; then
+                echo "Не удалось остановить фоновый процесс пользователя $username; удаление прервано." >&2
+                exit 1
+            fi
+        done || exit 1
+    fi
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --global disable certificate-analyzer.service >/dev/null 2>&1 || :
+    fi
+    if command -v pgrep >/dev/null 2>&1 && pgrep -f '^(/opt/certificate-analyzer/certificate-analyzer|/usr/bin/certificate-analyzer) worker([[:space:]]|$)' >/dev/null; then
+        echo 'Фоновый процесс ещё работает; удаление прервано.' >&2
+        exit 1
+    fi
 fi
 
 %postun

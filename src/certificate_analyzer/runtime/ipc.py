@@ -75,7 +75,7 @@ def receive(stream):
 def send(stream, value):
     raw = json.dumps(value, ensure_ascii=False).encode() + b"\n"
     if len(raw) > MAX_MESSAGE:
-        raise ValueError("Превышен размер IPC-пакета; уменьшите размер импорта")
+        raise ValueError("Превышен размер IPC-пакета; уменьшите размер операции")
     stream.write(raw)
     stream.flush()
 
@@ -123,7 +123,7 @@ class _Handler(socketserver.StreamRequestHandler):
                         raise ValueError("Фоновый процесс завершает работу")
                     name, method = request["service"], request["method"]
                     if method not in COMMANDS.get(name, set()):
-                        raise ValueError("Неизвестная команда записи")
+                        raise ValueError("Неизвестная команда")
                     service = getattr(self.server.app, name)
                     started = time.monotonic()
                     logger.info("Выполнение команды IPC: %s.%s", name, method)
@@ -143,7 +143,9 @@ class _Handler(socketserver.StreamRequestHandler):
 
 
 class WriterServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
-    allow_reuse_address = False
+    # Permit immediate restart after TIME_WAIT; SO_REUSEADDR does not allow a
+    # second live listener on the same port without SO_REUSEPORT.
+    allow_reuse_address = os.name != "nt"
     daemon_threads = False
     block_on_close = True
     request_queue_size = 32

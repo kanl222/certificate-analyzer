@@ -116,6 +116,8 @@ class CertificateService:
             batch = paths[start : start + 200]
             known = self.repository.cached_sources(batch)
             certificates, sources, fingerprints = [], [], []
+            employee_cache = {}
+            stored_hashes = {}
 
             for path in batch:
                 try:
@@ -126,14 +128,13 @@ class CertificateService:
                     if (cached and cached[0] == digest and not self.phonebook.employees
                             and (not self.employees or cached[3] is not None)):
                         stored = Path(cached[1])
-                        if (
-                            stored.parent == self.storage.folder
-                            and stored.is_file()
-                            and sha256(stored.read_bytes()).hexdigest().upper() == cached[2]
-                        ):
-                            result.skipped += 1
-                            fingerprints.append(cached[2])
-                            continue
+                        if stored.parent == self.storage.folder and stored.is_file():
+                            if stored not in stored_hashes:
+                                stored_hashes[stored] = sha256(stored.read_bytes()).hexdigest().upper()
+                            if stored_hashes[stored] == cached[2]:
+                                result.skipped += 1
+                                fingerprints.append(cached[2])
+                                continue
 
                     cert, der = self.parser.parse_for_import(data)
                     cert.status = certificate_status(
@@ -149,9 +150,12 @@ class CertificateService:
 
                     # Сопоставление с сотрудником через EmployeeService, если доступен
                     if self.employees and cert.employee and cert.employee.full_name:
-                        emp = self.employees.get_or_create(
-                            cert.employee.full_name, department=cert.employee.department
-                        )
+                        employee_key = (cert.employee.full_name, cert.employee.department)
+                        if employee_key not in employee_cache:
+                            employee_cache[employee_key] = self.employees.get_or_create(
+                                cert.employee.full_name, department=cert.employee.department
+                            )
+                        emp = employee_cache[employee_key]
                         cert.employee.id = emp.id
 
                     certificates.append(cert)

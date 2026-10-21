@@ -57,7 +57,7 @@ def test_import_copies_public_file_and_persists_only_metadata(
 
 
 def test_duplicate_pem_der_and_unchanged_import_skip_parser(
-    application, certificate_file, tmp_path
+    application, certificate_file, tmp_path, monkeypatch
 ):
     source = certificate_file()
     cert = x509.load_pem_x509_certificate(source.read_bytes())
@@ -68,11 +68,22 @@ def test_duplicate_pem_der_and_unchanged_import_skip_parser(
     assert len(result.certificates) == 1
     assert application.certificates.statistics()["total"] == 1
     assert len(list(application.certificates.storage.folder.glob("*.cer"))) == 1
+    original_read_bytes = Path.read_bytes
+    stored_reads = 0
+
+    def counted_read_bytes(path):
+        nonlocal stored_reads
+        if path.suffix == ".cer":
+            stored_reads += 1
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", counted_read_bytes)
     with patch.object(
         X509Parser, "parse_for_import", side_effect=AssertionError("must not reparse")
     ):
         repeated = application.certificates.import_files([source, der])
     assert repeated.skipped == 2 and not repeated.errors
+    assert stored_reads == 1
 
 
 def test_import_does_not_copy_private_key_sections(application, certificate_file):
@@ -154,6 +165,8 @@ def test_sql_search_pagination_dates_and_live_status(application, certificate_fi
     stats = repository.statistics(CertificateQuery(), now=now)
     assert stats["total"] == 110 and stats["EXPIRED"] == 3
     assert repository.statistics(CertificateQuery(search="%_"), now=now)["total"] == 110
+    assert repository.statistics(CertificateQuery(search="23.09.2026"), now=now)["total"] == 1
+    assert repository.statistics(CertificateQuery(search="просрочен"), now=now)["total"] == 3
     assert (
         repository.statistics(CertificateQuery(search="%nope"), now=now)["total"] == 0
     )
@@ -356,3 +369,16 @@ def test_open_and_reveal_file(application, certificate_file):
         application.certificates.reveal_file(cert.fingerprint_sha256)
         mock_reveal.assert_called_once_with(str(stored_file))
 
+
+
+def test_batch_import_reuses_employee_lookup(application, certificate_file, tmp_path):
+    source = certificate_file("first.pem")
+    second = tmp_path / "second.pem"
+    second.write_bytes(source.read_bytes())
+    with patch.object(
+        application.employees, "get_or_create",
+        wraps=application.employees.get_or_create,
+    ) as lookup:
+        result = application.certificates.import_files([source, second])
+    assert not result.errors
+    assert lookup.call_count == 1

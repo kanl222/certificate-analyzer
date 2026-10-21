@@ -27,11 +27,7 @@ Write-Host "==> Начало удаления Certificate Analyzer для Window
 # 1. Удаление пользовательского демона
 $UninstallServiceScript = Join-Path $PSScriptRoot "uninstall-service.ps1"
 if (Test-Path $UninstallServiceScript) {
-    try {
-        & $UninstallServiceScript
-    } catch {
-        Write-Warning "Ошибка при удалении демона: $_"
-    }
+    & $UninstallServiceScript
 }
 
 # 2. Удаление ярлыков

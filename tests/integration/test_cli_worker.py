@@ -29,6 +29,10 @@ def test_help_has_no_gui_import():
     assert result.returncode == 0, result.stderr
 
 
+def test_worker_stop_is_idempotent_without_daemon(tmp_path):
+    assert main(["--database", str(tmp_path / "unused.db"), "worker", "--stop"]) == 0
+
+
 def test_worker_report(certificate_file, tmp_path, application):
     source = certificate_file(days=-1)
     application.certificates.import_files([source])

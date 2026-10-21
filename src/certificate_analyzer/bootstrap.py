@@ -1,6 +1,9 @@
 """Композиционный корень (Composition Root) и контейнер приложения."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
+from pathlib import Path
 
 from certificate_analyzer.application.services.audit_service import AuditService
 from certificate_analyzer.application.services.certificate_request_service import (
@@ -56,7 +59,7 @@ class ApplicationContainer:
     """Контейнер зависимостей и сервисов приложения."""
 
     settings: Settings
-    database: Database
+    database: Database | "RemoteDatabase"
     certificates: CertificateService
     reports: ReportService
     mchds: MchdService
@@ -83,6 +86,45 @@ class ApplicationContainer:
         self.close()
 
 
+@dataclass
+class RemoteDatabase:
+    """Path metadata for a client process; no local SQLite connection."""
+
+    path: Path
+    read_only: bool = True
+
+    def close(self) -> None:
+        pass
+
+
+def _create_remote_application(settings: Settings) -> ApplicationContainer:
+    from certificate_analyzer.runtime.ipc import WriteClient
+    from certificate_analyzer.runtime.write_api import RemoteCertificateService, RemoteService
+
+    database = RemoteDatabase(get_database_path(settings))
+    client = WriteClient(database.path)
+    platform = get_platform_file_manager()
+    audit = RemoteService("audit", client)
+    certificate_files = RemoteService("certificate_files", client)
+    storage = CertificateStorage(settings.storage_folder or config_dir() / "certificates")
+    certificates = RemoteCertificateService(client, storage, platform, audit, certificate_files)
+    return ApplicationContainer(
+        settings=settings,
+        database=database,
+        certificates=certificates,
+        reports=ReportService(),
+        mchds=RemoteService("mchds", client),
+        notifications=PushNotificationManager(),
+        platform=platform,
+        certificate_requests=RemoteService("certificate_requests", client),
+        employees=RemoteService("employees", client),
+        audit=audit,
+        certificate_files=certificate_files,
+        monitoring=RemoteService("monitoring", client),
+        archive=RemoteService("archive", client),
+    )
+
+
 def create_application(config_path=None, *, settings=None, read_only=False) -> ApplicationContainer:
     """Создает и настраивает экземпляр контейнера приложения.
 
@@ -97,6 +139,8 @@ def create_application(config_path=None, *, settings=None, read_only=False) -> A
         Exception: При ошибке инициализации базы данных или сервисов.
     """
     settings = settings or load_settings(config_path)
+    if read_only:
+        return _create_remote_application(settings)
     database = Database(get_database_path(settings), read_only=read_only)
     try:
         phonebook = PhoneBook()
@@ -151,9 +195,6 @@ def create_application(config_path=None, *, settings=None, read_only=False) -> A
         )
         from certificate_analyzer.application.services.archive_service import ArchiveService
         application.archive = ArchiveService(application)
-        if read_only:
-            from certificate_analyzer.runtime.write_api import configure_client
-            configure_client(application)
         return application
 
     except Exception:

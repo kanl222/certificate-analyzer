@@ -169,9 +169,20 @@ class CertificateRepository:
     def _where(self, query, status):
         conditions = []
         if query.search.strip():
+            term = query.search.strip().casefold()
+            status_text = case(
+                (status == "ACTIVE", "в пределах срока"),
+                (status == "EXPIRING_SOON", "истекает"),
+                (status == "EXPIRED", "просрочен"),
+                (status == "REVOKED", "отозван"),
+                (status == "INVALID", "вне срока / неверные даты"),
+                else_="неизвестен",
+            )
             conditions.append(
-                Model.search_text.contains(
-                    query.search.strip().casefold(), autoescape=True
+                or_(
+                    Model.search_text.contains(term, autoescape=True),
+                    func.strftime("%d.%m.%Y", Model.valid_to).contains(term, autoescape=True),
+                    status_text.contains(term, autoescape=True),
                 )
             )
         if query.status:

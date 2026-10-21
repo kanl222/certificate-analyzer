@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source "$(dirname "$0")/daemon-process.sh"
 
 # Флаги
 INSTALL_DEPS=1
@@ -198,6 +199,15 @@ install_systemd_service() {
     local service_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
     mkdir -p "$service_dir"
 
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user stop certificate-analyzer.service >/dev/null 2>&1 || true
+    fi
+    # Старые выпуски возвращали ошибку, если процесс уже остановлен.
+    "$executable" worker --stop >/dev/null 2>&1 || true
+    if daemon_is_running "$executable"; then
+        echo "Ошибка: фоновый процесс не остановился; установка прервана." >&2
+        return 1
+    fi
     if command -v systemctl >/dev/null 2>&1; then
         systemctl --user unmask certificate-analyzer.service
     fi

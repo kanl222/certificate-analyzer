@@ -22,6 +22,8 @@ EMPLOYEE_COLUMNS = {
     "snils": ("СНИЛС", 110),
 }
 
+EMPLOYEE_PAGE_SIZE = 100
+
 
 class EmployeeDialog(tk.Toplevel):
     """Модальное диалоговое окно добавления или редактирования сотрудника."""
@@ -125,10 +127,15 @@ class EmployeeDialog(tk.Toplevel):
             email=self.entries["email"].get().strip() or None,
             inn=inn,
             snils=snils,
+            birth_date=self.employee.birth_date if self.employee else None,
         )
 
         if self.on_save:
-            self.on_save(saved_emp)
+            try:
+                self.on_save(saved_emp)
+            except Exception as exc:
+                messagebox.showerror("Ошибка", str(exc), parent=self)
+                return
         self.destroy()
 
 
@@ -157,6 +164,7 @@ class EmployeesView(ttk.Frame):
         self.on_message = on_message or (lambda _: None)
         self.on_create_request = on_create_request
         self.employees: list[Employee] = []
+        self.offset = 0
 
         self._build_ui()
         self.refresh()
@@ -252,6 +260,13 @@ class EmployeesView(ttk.Frame):
             style="Summary.TLabel",
         )
         self.stats_label.pack(side="left")
+        self.next_button = ttk.Button(bottom_bar, text="Следующая ›", command=lambda: self.change_page(1))
+        self.next_button.pack(side="right", padx=(6, 0))
+        self.previous_button = ttk.Button(bottom_bar, text="‹ Предыдущая", command=lambda: self.change_page(-1))
+        self.previous_button.pack(side="right")
+        self.page_label = ttk.Label(bottom_bar)
+        self.page_label.pack(side="right", padx=8)
+        bottom_bar.pack(fill="x")
 
     def _build_context_menu(self) -> None:
         """Создает контекстное меню правой кнопки мыши для строк таблицы."""
@@ -290,6 +305,10 @@ class EmployeesView(ttk.Frame):
     def _clear_search(self) -> None:
         """Сбрасывает поисковую строку и перезагружает список."""
         self.search_var.set("")
+        self.refresh(reset=True)
+
+    def change_page(self, direction: int) -> None:
+        self.offset = max(0, self.offset + direction * EMPLOYEE_PAGE_SIZE)
         self.refresh()
 
     def get_selected_employee(self) -> Employee | None:
@@ -300,13 +319,20 @@ class EmployeesView(ttk.Frame):
         emp_id = int(selected[0])
         return next((e for e in self.employees if e.id == emp_id), None)
 
-    def refresh(self) -> None:
+    def refresh(self, reset: bool = False) -> None:
         """Перезагружает список сотрудников из базы данных."""
         if not getattr(self.app, "employees", None):
             return
+        if reset:
+            self.offset = 0
 
         search_query = self.search_var.get().strip() or None
-        self.employees = self.app.employees.list_employees(search=search_query)
+        total = self.app.employees.count_employees(search=search_query)
+        if self.offset >= total:
+            self.offset = max(0, (total - 1) // EMPLOYEE_PAGE_SIZE * EMPLOYEE_PAGE_SIZE)
+        self.employees = self.app.employees.list_employees(
+            search=search_query, limit=EMPLOYEE_PAGE_SIZE, offset=self.offset
+        )
 
         table_state = TableState.capture(self.tree)
         self.tree.delete(*self.tree.get_children())
@@ -345,7 +371,7 @@ class EmployeesView(ttk.Frame):
                 "Сотрудников пока нет\nДобавьте первого сотрудника"
             )
 
-        summary = f"Всего сотрудников: {len(self.employees)}"
+        summary = f"Всего сотрудников: {total}"
         self.stats_label.config(text=summary)
         self.on_message(summary)
 

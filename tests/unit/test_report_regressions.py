@@ -163,8 +163,10 @@ def test_connection_timeout_uses_configured_budget(tmp_path, monkeypatch):
 
 
 def test_timestamp_roundtrip_keeps_utc_timezone(application, certificate_file):
+    from certificate_analyzer.domain.enums.certificate_request_status import CertificateRequestStatus
+
     application.certificates.import_files([certificate_file()])
-    request = application.certificate_requests.create_request()
+    request = application.certificate_requests.create_request(status=CertificateRequestStatus.SUBMITTED)
     assert request.created_at.utcoffset() == timedelta(0)
     assert request.submitted_at.utcoffset() == timedelta(0)
     assert application.certificate_requests.get_request(request.id).created_at.utcoffset() == timedelta(0)
