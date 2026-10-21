@@ -1,0 +1,3 @@
+# Linux packaging must remain executable with Bash after Windows checkouts.
+/packaging/linux/* text eol=lf
+*.sh text eol=lf

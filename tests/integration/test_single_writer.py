@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import time
+import tempfile
 
 import pytest
 from sqlalchemy.exc import OperationalError
@@ -24,9 +25,11 @@ def writer(tmp_path):
                         storage_folder=str(tmp_path / "certificates"),
                         export_folder=str(tmp_path / "reports"), check_interval=3600)
     environment = os.environ.copy()
+    environment["PYTHONIOENCODING"] = "utf-8"
     environment["CERTIFICATE_ANALYZER_DAEMON_SETTINGS"] = json.dumps(asdict(settings))
+    output = tempfile.TemporaryFile()
     process = subprocess.Popen([sys.executable, "-m", "certificate_analyzer", "worker"],
-                               env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                               env=environment, stdout=output, stderr=output)
     client = WriteClient(settings.database_path, timeout=3)
     try:
         deadline = time.monotonic() + 15
@@ -37,8 +40,11 @@ def writer(tmp_path):
                 break
             except WriterUnavailable:
                 if process.poll() is not None or time.monotonic() > deadline:
-                    _, errors = process.communicate(timeout=2)
-                    pytest.fail(errors.decode(errors="replace"))
+                    if process.poll() is None:
+                        process.terminate()
+                    process.wait(timeout=5)
+                    output.seek(0)
+                    pytest.fail(output.read().decode("utf-8", errors="replace"))
                 time.sleep(0.05)
         yield settings, process, client
     finally:
@@ -50,6 +56,7 @@ def writer(tmp_path):
                 process.terminate()
                 process.wait(timeout=5)
         process.communicate()
+        output.close()
 
 
 def test_gui_crud_reads_committed_data_and_cannot_write(writer):

@@ -56,6 +56,9 @@ fi
 
 # 4. Опциональная очистка данных
 rm -f -- "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/256x256/apps/certificate-analyzer.png"
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -f -t "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor" >/dev/null 2>&1 || true
+fi
 
 if [ "$PURGE_DATA" -eq 1 ]; then
     echo "Удаление данных и конфигурации (~/.certificate-analyzer)..."

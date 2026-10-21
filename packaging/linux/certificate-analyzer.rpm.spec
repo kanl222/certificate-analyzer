@@ -65,6 +65,10 @@ if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database /usr/share/applications >/dev/null 2>&1 || :
 fi
 
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -f -t /usr/share/icons/hicolor >/dev/null 2>&1 || :
+fi
+
 %preun
 # RPM passes 0 for removal and 1 for replacement during an upgrade.
 if [ "$1" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
@@ -74,6 +78,10 @@ fi
 %postun
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database /usr/share/applications >/dev/null 2>&1 || :
+fi
+
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -f -t /usr/share/icons/hicolor >/dev/null 2>&1 || :
 fi
 
 %files

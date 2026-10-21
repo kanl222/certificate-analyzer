@@ -22,6 +22,8 @@ class X509Parser:
     на уровне доменной логики.
     """
 
+    MAX_CERTIFICATE_SIZE = 1024 * 1024
+
     @classmethod
     def parse(
         cls,
@@ -57,21 +59,25 @@ class X509Parser:
             model.source_path = str(Path(cert_source).resolve())
         return model
 
-    @staticmethod
+    @classmethod
     def _read_source(
+        cls,
         cert_source: bytes | str | Path,
     ) -> bytes:
         """Получить байтовое представление сертификата."""
 
         if isinstance(cert_source, bytes):
-            return cert_source
-
-        if isinstance(cert_source, (str, Path)):
+            data = cert_source
+        elif isinstance(cert_source, (str, Path)):
             path = Path(cert_source)
-
-            return path.read_bytes()
-
-        raise TypeError("cert_source должен иметь тип bytes, str или Path")
+            # Bound the read itself so oversized input cannot exhaust memory.
+            with path.open("rb") as stream:
+                data = stream.read(cls.MAX_CERTIFICATE_SIZE + 1)
+        else:
+            raise TypeError("cert_source должен иметь тип bytes, str или Path")
+        if len(data) > cls.MAX_CERTIFICATE_SIZE:
+            raise ValueError("Размер сертификата превышает допустимый предел (1 МиБ)")
+        return data
 
     @classmethod
     def parse_for_import(cls, source):

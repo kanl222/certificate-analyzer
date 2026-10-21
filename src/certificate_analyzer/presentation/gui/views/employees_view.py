@@ -7,7 +7,8 @@ from typing import Any, Callable
 
 from certificate_analyzer.domain.models.employee import Employee
 from certificate_analyzer.infrastructure.mchd.validator import is_valid_inn, is_valid_snils
-from certificate_analyzer.presentation.gui.widgets.table_state import EmptyStateLabel
+from certificate_analyzer.presentation.gui.widgets.table_state import EmptyStateLabel, TableState
+from certificate_analyzer.presentation.gui.widgets.responsive_bar import ResponsiveBar, fit_dialog
 
 EMPLOYEE_COLUMNS = {
     "full_name": ("ФИО сотрудника", 220),
@@ -48,11 +49,13 @@ class EmployeeDialog(tk.Toplevel):
         self.grab_set()
 
         self._init_ui()
+        fit_dialog(self, width=480, height=410)
 
     def _init_ui(self) -> None:
         """Создает форму ввода реквизитов сотрудника."""
         frame = ttk.Frame(self, padding=16)
         frame.pack(fill="both", expand=True)
+        frame.columnconfigure(1, weight=1)
 
         fields = [
             ("ФИО сотрудника *:", "full_name", self.employee.full_name if self.employee else ""),
@@ -71,7 +74,10 @@ class EmployeeDialog(tk.Toplevel):
             ttk.Label(frame, text=label).grid(row=row, column=0, sticky="w", pady=3)
             var = tk.StringVar(value=initial_val)
             self.entries[field_name] = var
-            ttk.Entry(frame, textvariable=var, width=34).grid(row=row, column=1, pady=3, padx=(8, 0))
+            entry = ttk.Entry(frame, textvariable=var, width=34)
+            entry.grid(row=row, column=1, sticky="ew", pady=3, padx=(8, 0))
+            if row == 0:
+                entry.focus_set()
 
         self.is_management_var = tk.BooleanVar(
             value=bool(self.employee.is_management) if self.employee else False
@@ -157,45 +163,48 @@ class EmployeesView(ttk.Frame):
 
     def _build_ui(self) -> None:
         """Формирует графические элементы интерфейса вкладки сотрудников."""
-        toolbar = ttk.Frame(self, style="Panel.TFrame", padding=(8, 6))
+        toolbar = ResponsiveBar(self)
         toolbar.pack(fill="x", pady=(0, 8))
-        ttk.Button(
+        toolbar.add(ttk.Button(
             toolbar,
             text="Добавить сотрудника",
             style="Accent.TButton",
             command=self.show_create_dialog,
-        ).pack(side="left", padx=(0, 6))
-        ttk.Button(
+        ))
+        toolbar.add(ttk.Button(
             toolbar,
             text="Обновить",
             command=self.refresh,
             style="Toolbar.TButton",
-        ).pack(side="left", padx=3)
+        ))
+        self.selection_buttons = []
+        for label, command, style in (
+            ("Редактировать…", self.edit_selected, "Toolbar.TButton"),
+            ("Создать заявку…", self.create_request_for_selected, "Toolbar.TButton"),
+            ("Удалить", self.delete_selected, "Danger.TButton"),
+        ):
+            self.selection_buttons.append(toolbar.add(ttk.Button(
+                toolbar, text=label, command=command, style=style, state="disabled",
+            )))
 
-        filters = ttk.Frame(self, style="Panel.TFrame", padding=(8, 6))
+        filters = ResponsiveBar(self)
         filters.pack(fill="x", pady=(0, 8))
-        filters.columnconfigure(1, weight=1)
-        ttk.Label(filters, text="Поиск:", style="Panel.TLabel").grid(
-            row=0, column=0, sticky="w"
-        )
+        search_group = ttk.Frame(filters, style="Status.TFrame")
+        ttk.Label(search_group, text="Поиск:", style="Panel.TLabel").pack(side="left", padx=(0, 6))
         self.search_var = tk.StringVar()
-        self.search_entry = ttk.Entry(filters, textvariable=self.search_var, width=28)
-        self.search_entry.grid(
-            row=0,
-            column=1,
-            sticky="ew",
-            padx=(6, 8),
-        )
+        self.search_entry = ttk.Entry(search_group, textvariable=self.search_var, width=28)
+        self.search_entry.pack(side="left", fill="x", expand=True)
+        filters.add(search_group, stretch=True)
         self.search_entry.bind("<Return>", lambda _: self.refresh())
-        ttk.Button(
+        filters.add(ttk.Button(
             filters, text="Найти", command=self.refresh, style="Toolbar.TButton"
-        ).grid(row=0, column=2, padx=(0, 5))
-        ttk.Button(
+        ))
+        filters.add(ttk.Button(
             filters,
             text="Сбросить",
             command=self._clear_search,
             style="Toolbar.TButton",
-        ).grid(row=0, column=3)
+        ))
 
         table_frame = ttk.Frame(self)
         table_frame.pack(fill="both", expand=True)
@@ -231,8 +240,10 @@ class EmployeesView(ttk.Frame):
 
         self.tree.bind("<Double-1>", self.on_double_click)
         self.tree.bind("<Button-3>", self._show_context_menu)
+        self.tree.bind("<<TreeviewSelect>>", self._update_selection_actions, add="+")
 
         self._build_context_menu()
+        self._update_selection_actions()
 
         bottom_bar = ttk.Frame(self, padding=(0, 6, 0, 0))
         self.stats_label = ttk.Label(
@@ -250,11 +261,21 @@ class EmployeesView(ttk.Frame):
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Удалить сотрудника", command=self.delete_selected)
 
+    def _update_selection_actions(self, _event=None):
+        """Включает команды только для выбранного сотрудника."""
+        state = "normal" if self.tree.selection() else "disabled"
+        for button in self.selection_buttons:
+            button.configure(state=state)
+        for index in (0, 1, 3):
+            self.context_menu.entryconfigure(index, state=state)
+
     def _show_context_menu(self, event: tk.Event) -> None:
         """Отображает контекстное меню для выбранной строки."""
         item = self.tree.identify_row(event.y)
         if item:
             self.tree.selection_set(item)
+            self.tree.focus(item)
+            self._update_selection_actions()
             self.context_menu.post(event.x_root, event.y_root)
 
     def on_double_click(self, event: tk.Event) -> None:
@@ -287,6 +308,7 @@ class EmployeesView(ttk.Frame):
         search_query = self.search_var.get().strip() or None
         self.employees = self.app.employees.list_employees(search=search_query)
 
+        table_state = TableState.capture(self.tree)
         self.tree.delete(*self.tree.get_children())
         for emp in self.employees:
             phones_str = ", ".join(emp.phones) if emp.phones else "—"
@@ -309,6 +331,8 @@ class EmployeesView(ttk.Frame):
             )
 
         self.sorter.apply()
+        table_state.restore(self.tree)
+        self._update_selection_actions()
 
         if self.employees:
             self.empty_label.hide()

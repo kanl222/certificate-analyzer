@@ -70,10 +70,14 @@ class CertificateAnalyzerApp:
         self._notification_history: NotificationHistory | None = None
         self.root.title("Менеджер сертификатов")
         icon_dir = Path(__file__).resolve().parents[2] / "assets"
-        self._window_icon = tk.PhotoImage(master=self.root, file=str(icon_dir / "app-icon.png"))
-        self.root.iconphoto(True, self._window_icon)
-        if self.root.tk.call("tk", "windowingsystem") == "win32":
-            self.root.iconbitmap(default=str(icon_dir / "app-icon.ico"))
+        self._window_icon = tk.PhotoImage(master=self.root, data=(icon_dir / "app-icon.png").read_bytes())
+        # Give Tk explicit small sizes; do not override the PNG with ICO loading.
+        self._window_icons = (
+            self._window_icon,
+            self._window_icon.subsample(max(1, self._window_icon.width() // 32)),
+            self._window_icon.subsample(max(1, self._window_icon.width() // 16)),
+        )
+        self.root.iconphoto(True, *self._window_icons)
         self._configure_window_geometry()
 
         self._build_ui()
@@ -160,8 +164,11 @@ class CertificateAnalyzerApp:
         # Статусная строка и компактный индикатор фоновых операций
         status_bar = ttk.Frame(frame, style="Status.TFrame", padding=(8, 5))
         status_bar.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        status_bar.columnconfigure(0, weight=1)
         self.message = ttk.Label(status_bar, text="Загрузка…", style="Status.TLabel")
-        self.message.pack(side="left")
+        self.message.grid(row=0, column=0, sticky="ew")
+        status_bar.bind("<Configure>", lambda event: self.message.configure(
+            wraplength=max(100, event.width - self.monitor_status.winfo_reqwidth() - 160)))
         self.progress = ttk.Progressbar(
             status_bar,
             mode="indeterminate",
@@ -172,7 +179,7 @@ class CertificateAnalyzerApp:
             text="Мониторинг: проверка…",
             style="Status.TLabel",
         )
-        self.monitor_status.pack(side="right")
+        self.monitor_status.grid(row=0, column=2, sticky="e", padx=(12, 0))
 
         # Менеджер фоновых задач
         self.task_runner = TaskRunner(
@@ -216,13 +223,9 @@ class CertificateAnalyzerApp:
         for button in self.import_buttons:
             button.config(state=state)
         if is_active:
-            self.progress.pack(
-                side="left",
-                padx=(12, 0),
-                after=self.message,
-            )
+            self.progress.grid(row=0, column=1, padx=(12, 0))
         else:
-            self.progress.pack_forget()
+            self.progress.grid_remove()
 
     def set_message(self, text: str) -> None:
         """Устанавливает текст статусной строки приложения.

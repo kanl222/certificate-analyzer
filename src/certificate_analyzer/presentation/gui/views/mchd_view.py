@@ -1,6 +1,7 @@
 """Представление вкладки машиночитаемых доверенностей (МЧД) и диалоговые окна."""
 
 from datetime import timezone, datetime
+from hashlib import sha256
 import os
 from pathlib import Path
 import tkinter as tk
@@ -29,8 +30,11 @@ from certificate_analyzer.presentation.gui.styles import (
 )
 from certificate_analyzer.presentation.gui.widgets.table_state import (
     EmptyStateLabel,
+    TableState,
     sort_heading_text,
 )
+from certificate_analyzer.presentation.gui.widgets.responsive_bar import ResponsiveBar
+from certificate_analyzer.presentation.gui.widgets.scrollable_panel import ScrollablePanel
 
 
 UTC = timezone.utc
@@ -111,57 +115,53 @@ class MchdView(ttk.Frame):
     def _build_ui(self) -> None:
         """Создает элементы управления, панель фильтров, таблицу и блок деталей."""
         # 1. Верхняя панель действий (Toolbar)
-        toolbar = ttk.Frame(self, style="Panel.TFrame", padding=(8, 6))
+        toolbar = ResponsiveBar(self)
         toolbar.pack(fill=tk.X, pady=(0, 8))
 
-        ttk.Button(
+        toolbar.add(ttk.Button(
             toolbar,
             text="Сканировать папку…",
             command=self.scan_folder,
             style="Accent.TButton",
-        ).pack(side=tk.LEFT, padx=(0, 5))
+        ))
 
-        ttk.Button(
+        toolbar.add(ttk.Button(
             toolbar,
             text="Импортировать XML…",
             command=self.import_files,
             style="Toolbar.TButton",
-        ).pack(side=tk.LEFT, padx=3)
-        ttk.Button(
+        ))
+        toolbar.add(ttk.Button(
             toolbar,
             text="Экспорт в Excel",
             command=self.export_to_excel,
             style="Toolbar.TButton",
-        ).pack(side=tk.LEFT, padx=3)
+        ))
 
-        ttk.Button(
+        toolbar.add(ttk.Button(
             toolbar,
             text="Обновить",
             command=self.refresh,
             style="Toolbar.TButton",
-        ).pack(
-            side=tk.LEFT, padx=3
-        )
+        ))
 
         # 2. Панель поиска и фильтрации
-        filter_bar = ttk.Frame(self, style="Panel.TFrame", padding=(8, 6))
+        filter_bar = ResponsiveBar(self)
         filter_bar.pack(fill=tk.X, pady=(0, 8))
 
-        filter_bar.columnconfigure(1, weight=1)
-        ttk.Label(filter_bar, text="Поиск:", style="Panel.TLabel").grid(
-            row=0, column=0, sticky=tk.W
-        )
+        search_group = ttk.Frame(filter_bar, style="Status.TFrame")
+        ttk.Label(search_group, text="Поиск:", style="Panel.TLabel").pack(side="left", padx=(0, 6))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self.apply_filters())
-        search_entry = ttk.Entry(filter_bar, textvariable=self.search_var, width=28)
-        search_entry.grid(row=0, column=1, sticky=tk.EW, padx=(6, 12))
+        search_entry = ttk.Entry(search_group, textvariable=self.search_var, width=28)
+        search_entry.pack(side="left", fill="x", expand=True)
+        filter_bar.add(search_group, stretch=True)
 
-        ttk.Label(filter_bar, text="Статус срока:", style="Panel.TLabel").grid(
-            row=0, column=2, sticky=tk.E, padx=(0, 4)
-        )
+        status_group = ttk.Frame(filter_bar, style="Status.TFrame")
+        ttk.Label(status_group, text="Статус срока:", style="Panel.TLabel").pack(side="left", padx=(0, 6))
         self.status_var = tk.StringVar(value="Все статусы")
         status_combo = ttk.Combobox(
-            filter_bar,
+            status_group,
             textvariable=self.status_var,
             values=[
                 "Все статусы",
@@ -173,16 +173,17 @@ class MchdView(ttk.Frame):
             state="readonly",
             width=14,
         )
-        status_combo.grid(row=0, column=3, padx=(0, 8))
+        status_combo.pack(side="left")
+        filter_bar.add(status_group)
         status_combo.bind("<<ComboboxSelected>>", lambda _: self.apply_filters())
 
-        ttk.Button(
+        filter_bar.add(ttk.Button(
             filter_bar,
             text="Сбросить",
             command=self.clear_search,
             width=10,
             style="Toolbar.TButton",
-        ).grid(row=0, column=4)
+        ))
 
         self.stats_label = ttk.Label(
             filter_bar,
@@ -297,6 +298,10 @@ class MchdView(ttk.Frame):
         self.tree.bind("<Button-3>", _on_context)
 
         # 5. Свойства, полномочия и действия выбранной МЧД
+        actions_parent = details_frame
+        self.details_scroll = ScrollablePanel(details_frame)
+        self.details_scroll.pack(fill=tk.BOTH, expand=True)
+        details_frame = self.details_scroll.body
         self.selected_info_label = ttk.Label(
             details_frame,
             text="Выбрано: 0 МЧД",
@@ -325,7 +330,7 @@ class MchdView(ttk.Frame):
         )
         properties = ttk.Frame(details_frame, style="Status.TFrame")
         properties.pack(fill=tk.X)
-        properties.columnconfigure(1, weight=1)
+        properties.columnconfigure(0, weight=1)
         self._detail_titles = dict(property_labels)
         self._detail_rows = {}
         self._selected_detail = None
@@ -342,7 +347,7 @@ class MchdView(ttk.Frame):
                 font=(UI_FONT, 9, "bold"),
                 style="Panel.TLabel",
             )
-            title_widget.grid(row=row, column=0, sticky="nsew", padx=(0, 8), pady=3)
+            title_widget.grid(row=row * 2, column=0, sticky="w", pady=(8, 2))
             value = ttk.Label(
                 properties,
                 text="—",
@@ -350,7 +355,7 @@ class MchdView(ttk.Frame):
                 wraplength=230,
                 justify=tk.LEFT,
             )
-            value.grid(row=row, column=1, sticky="nsew", pady=3)
+            value.grid(row=row * 2 + 1, column=0, sticky="ew")
             self.mchd_detail_fields[key] = value
             self._detail_rows[key] = (title_widget, value)
             for widget in (title_widget, value):
@@ -383,25 +388,39 @@ class MchdView(ttk.Frame):
         scroll_c.pack(side=tk.RIGHT, fill=tk.Y)
         self.codes_listbox.configure(yscrollcommand=scroll_c.set)
 
-        actions = ttk.Frame(details_frame, style="Status.TFrame")
-        actions.pack(fill=tk.X, pady=(8, 0))
-        self.detail_action_buttons: list[ttk.Button] = []
+        actions = ttk.Frame(actions_parent, style="Status.TFrame")
+        actions.pack(side=tk.BOTTOM, fill=tk.X, pady=(8, 0), before=self.details_scroll)
+        self.detail_action_buttons: list[ttk.Button | ttk.Menubutton] = []
         for label, command in (
             ("Открыть карточку", self.view_personal_data),
             ("Открыть XML", self.open_xml_file),
-            ("Показать в проводнике", self.reveal_file),
-            ("Копировать коды", self.copy_selected_codes),
         ):
+            if self.detail_action_buttons:
+                row = ttk.Frame(actions, style="Status.TFrame")
+                row.pack(fill=tk.X)
+            else:
+                row = actions
             button = ttk.Button(
-                actions,
+                row,
                 text=label,
                 command=command,
                 style="Toolbar.TButton",
                 state="disabled",
             )
-            button.pack(fill=tk.X, pady=(0, 5))
+            if row is actions:
+                button.pack(fill=tk.X, pady=(0, 5))
+            else:
+                button.pack(side=tk.LEFT, fill=tk.X, expand=True)
             self.detail_action_buttons.append(button)
+        more = ttk.Menubutton(row, text="Ещё…", state="disabled")
+        more.pack(side=tk.RIGHT, padx=(6, 0))
+        more_menu = tk.Menu(more, tearoff=0)
+        more_menu.add_command(label="Показать в проводнике", command=self.reveal_file)
+        more_menu.add_command(label="Копировать коды", command=self.copy_selected_codes)
+        more.configure(menu=more_menu)
+        self.detail_action_buttons.append(more)
         details_frame.bind("<Configure>", self._resize_detail_values, add="+")
+        self.details_scroll.bind_mousewheel()
 
     def _resize_content_pane(self, event: tk.Event) -> None:
         """Планирует раскладку после завершения расчёта геометрии Tk."""
@@ -443,7 +462,7 @@ class MchdView(ttk.Frame):
 
     def _resize_detail_values(self, event: tk.Event) -> None:
         """Подстраивает перенос значений в карточке МЧД под её ширину."""
-        wraplength = max(150, event.width - 145)
+        wraplength = max(60, event.width - 8)
         self.person_info_label.config(wraplength=max(180, event.width - 24))
         for label in self.mchd_detail_fields.values():
             label.config(wraplength=wraplength)
@@ -569,6 +588,7 @@ class MchdView(ttk.Frame):
 
     def refresh_table(self) -> None:
         """Очищает и заново заполняет таблицу отфильтрованными данными."""
+        table_state = TableState.capture(self.tree)
         if self.sort_column_key:
             column = self.sort_column_key
             self.filtered_data.sort(
@@ -590,7 +610,8 @@ class MchdView(ttk.Frame):
         }
 
         self._row_to_mchd.clear()
-        for idx, mchd in enumerate(self.filtered_data):
+        occurrences = {}
+        for mchd in self.filtered_data:
             status_text = mchd.get("status", "")
             tags = [self._get_status_tag(status_text)]
 
@@ -609,7 +630,12 @@ class MchdView(ttk.Frame):
                 org = ""
 
             doc_number = mchd.get("doc_number", "")
-            iid = f"row_{idx}_{id(mchd)}"
+            # Путь и реквизиты сохраняются при повторном чтении DTO из базы.
+            identity = (mchd.get("file_name", ""), mchd.get("xml_path", ""), doc_number,
+                        mchd.get("full_name", ""), mchd.get("inn", ""))
+            occurrence = occurrences.get(identity, 0)
+            occurrences[identity] = occurrence + 1
+            iid = "mchd_" + sha256(repr((identity, occurrence)).encode("utf-8")).hexdigest()
             self._row_to_mchd[iid] = mchd
 
             self.tree.insert(
@@ -640,7 +666,7 @@ class MchdView(ttk.Frame):
                 "Доверенностей пока нет\nИмпортируйте XML или просканируйте папку"
             )
 
-        self.selected_items = ()
+        table_state.restore(self.tree)
         self.on_select()
 
     def check_for_duplicates(self) -> None:

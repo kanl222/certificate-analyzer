@@ -38,8 +38,8 @@ Name: "daemon"; Description: "Запускать фоновый монитори
 Source: "..\..\dist\CertificateAnalyzer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#GuiExeName}"; Parameters: "gui"; WorkingDir: "{app}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#GuiExeName}"; Parameters: "gui"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#GuiExeName}"; Parameters: "gui"; WorkingDir: "{app}"; AppUserModelID: "kanl.CertificateAnalyzer"
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#GuiExeName}"; Parameters: "gui"; WorkingDir: "{app}"; Tasks: desktopicon; AppUserModelID: "kanl.CertificateAnalyzer"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "CertificateAnalyzer"; ValueData: """{app}\{#GuiExeName}"" worker"; Flags: uninsdeletevalue; Tasks: daemon

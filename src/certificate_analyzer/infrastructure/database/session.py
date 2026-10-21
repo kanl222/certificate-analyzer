@@ -4,12 +4,15 @@ import os
 from pathlib import Path
 from urllib.parse import quote
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import URL, create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from certificate_analyzer.infrastructure.config.paths import config_dir
 from certificate_analyzer.infrastructure.database.models import Base
 from certificate_analyzer.infrastructure.database.migrations import migrate
+
+
+BUSY_TIMEOUT_MS = 30000
 
 
 def get_database_path(settings=None):
@@ -30,14 +33,16 @@ class Database:
             self.path.parent.mkdir(parents=True, exist_ok=True)
         self.engine = create_engine(
             ("sqlite:///file:" + quote(self.path.as_posix(), safe="/:") + "?mode=ro&uri=true")
-            if read_only else "sqlite:///" + self.path.as_posix(),
-            connect_args={"timeout": 30},
+            if read_only else URL.create("sqlite", database=self.path.as_posix()),
+            connect_args={"timeout": BUSY_TIMEOUT_MS / 1000},
         )
 
         @event.listens_for(self.engine, "connect")
         def configure(connection, _):
             connection.execute("PRAGMA foreign_keys=ON")
-            connection.execute("PRAGMA busy_timeout=30000")
+            connection.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+            # Для учётных данных сохраняем синхронизацию WAL при каждом коммите.
+            connection.execute("PRAGMA synchronous=FULL")
             if read_only:
                 connection.execute("PRAGMA query_only=ON")
 
@@ -46,7 +51,9 @@ class Database:
                 migrate(self.engine, self.path)
                 Base.metadata.create_all(self.engine)
                 with self.engine.connect() as connection:
-                    connection.exec_driver_sql("PRAGMA journal_mode=WAL")
+                    mode = connection.exec_driver_sql("PRAGMA journal_mode=WAL").scalar()
+                    if mode != "wal":
+                        raise RuntimeError("Не удалось включить WAL для базы данных")
             self.sessions = sessionmaker(self.engine, expire_on_commit=False)
         except Exception:
             self.engine.dispose()

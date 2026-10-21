@@ -252,12 +252,16 @@ Name=Certificate Analyzer
 Comment=Анализатор сертификатов X.509 и машиночитаемых доверенностей
 Exec=$executable gui
 Icon=certificate-analyzer
+StartupWMClass=CertificateAnalyzer
 Terminal=false
 Categories=Office;Security;Utility;
 Keywords=certificate;mchd;x509;сертификат;мчд;
 DESKTOP
 
     chmod +x "$desktop_file"
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -f -t "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor" >/dev/null 2>&1 || true
+    fi
     if command -v update-desktop-database >/dev/null 2>&1; then
         update-desktop-database "$apps_dir" 2>/dev/null || true
     fi

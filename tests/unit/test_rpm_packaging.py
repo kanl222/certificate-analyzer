@@ -62,3 +62,19 @@ def test_missing_bundle_argument_has_clear_error():
     result = subprocess.run([BASH, "packaging/linux/build-rpm.sh", "--bundle-dir"], cwd=PROJECT, capture_output=True, text=True, encoding="utf-8", timeout=15)
     assert result.returncode != 0
     assert "требуется путь" in result.stderr
+
+
+@pytest.mark.parametrize("system_id,expected", [("ubuntu", "generic"), ("altlinux", "alt")])
+def test_distro_detection_preserves_package_version(tmp_path, system_id, expected):
+    os_release = tmp_path / "os-release"
+    os_release.write_text(f'ID={system_id}\nVERSION="24.04.5 LTS (Noble Numbat)"\n', encoding="utf-8")
+    script = (PROJECT / "packaging/linux/build-rpm.sh").read_text(encoding="utf-8")
+    detection = script.split('if [ "$DISTRO" = auto ]; then', 1)[1].split('\ncase "$DISTRO"', 1)[0]
+    detection = 'if [ "$DISTRO" = auto ]; then' + detection
+    detection = detection.replace("/etc/os-release", os_release.as_posix())
+    result = subprocess.run(
+        [BASH, "-c", 'set -eu\nVERSION=0.2.0\nDISTRO=auto\n' + detection + '\nprintf "%s\\n%s\\n" "$VERSION" "$DISTRO"'],
+        cwd=PROJECT, capture_output=True, text=True, encoding="utf-8", timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == ["0.2.0", expected]

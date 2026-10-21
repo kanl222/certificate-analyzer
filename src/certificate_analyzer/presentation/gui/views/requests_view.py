@@ -14,7 +14,8 @@ from certificate_analyzer.domain.models.certificate_request import CertificateRe
 from certificate_analyzer.presentation.gui.styles import (
     UI_FONT,
 )
-from certificate_analyzer.presentation.gui.widgets.table_state import EmptyStateLabel
+from certificate_analyzer.presentation.gui.widgets.table_state import EmptyStateLabel, TableState
+from certificate_analyzer.presentation.gui.widgets.responsive_bar import ResponsiveBar, fit_dialog
 from certificate_analyzer.presentation.gui.views.dialogs.employee_picker import EmployeePickerDialog, _add_entry_context_menu
 
 REQUEST_COLUMNS = {
@@ -68,85 +69,54 @@ class RequestsView(ttk.Frame):
 
     def _build_ui(self) -> None:
         """Создает элементы управления, панель фильтров и таблицу заявок."""
-        toolbar = ttk.Frame(self, style="Panel.TFrame", padding=(8, 6))
+        toolbar = ResponsiveBar(self)
         toolbar.pack(fill="x", pady=(0, 8))
-
-        ttk.Button(
-            toolbar,
-            text="Создать заявку…",
-            command=self.show_create_dialog,
-            style="Accent.TButton",
-        ).pack(side="left", padx=(0, 6))
-
-        ttk.Button(
-            toolbar,
-            text="Сменить статус…",
-            command=self.show_status_dialog,
-            style="Toolbar.TButton",
-        ).pack(side="left", padx=3)
-
-        ttk.Button(
-            toolbar,
-            text="Привязать сертификат…",
-            command=self.show_link_dialog,
-            style="Toolbar.TButton",
-        ).pack(side="left", padx=3)
-
-        ttk.Button(
-            toolbar,
-            text="Обновить",
-            command=self.refresh,
-            style="Toolbar.TButton",
-        ).pack(side="left", padx=3)
-
-        ttk.Button(
-            toolbar,
-            text="Удалить",
-            command=self.delete_selected,
-            style="Toolbar.TButton",
-        ).pack(side="right", padx=(3, 0))
-
-        ttk.Button(
-            toolbar,
-            text="Отметить обработанной",
-            command=self.mark_processed,
-            style="Toolbar.TButton",
-        ).pack(side="right")
+        self.selection_buttons = []
+        for label, command, style, needs_selection in (
+            ("Создать заявку…", self.show_create_dialog, "Accent.TButton", False),
+            ("Обновить", self.refresh, "Toolbar.TButton", False),
+            ("Сменить статус…", self.show_status_dialog, "Toolbar.TButton", True),
+            ("Привязать сертификат…", self.show_link_dialog, "Toolbar.TButton", True),
+            ("Отметить обработанной", self.mark_processed, "Toolbar.TButton", True),
+            ("Удалить", self.delete_selected, "Danger.TButton", True),
+        ):
+            button = toolbar.add(ttk.Button(toolbar, text=label, command=command, style=style))
+            if needs_selection:
+                self.selection_buttons.append(button)
 
         # Панель фильтрации
-        filters = ttk.Frame(self, style="Panel.TFrame", padding=(8, 6))
+        filters = ResponsiveBar(self)
         filters.pack(fill="x", pady=(0, 8))
 
-        filters.columnconfigure(1, weight=1)
-        ttk.Label(filters, text="Поиск:", style="Panel.TLabel").grid(
-            row=0, column=0, sticky="w"
-        )
+        search_group = ttk.Frame(filters, style="Status.TFrame")
+        ttk.Label(search_group, text="Поиск:", style="Panel.TLabel").pack(side="left", padx=(0, 6))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self.refresh())
-        search_filter_entry = ttk.Entry(filters, textvariable=self.search_var, width=25)
-        search_filter_entry.grid(row=0, column=1, sticky="ew", padx=(6, 12))
+        search_filter_entry = ttk.Entry(search_group, textvariable=self.search_var, width=25)
+        search_filter_entry.pack(side="left", fill="x", expand=True)
+        filters.add(search_group, stretch=True)
         _add_entry_context_menu(search_filter_entry)
 
-        ttk.Label(filters, text="Статус:", style="Panel.TLabel").grid(
-            row=0, column=2, padx=(0, 4)
-        )
+        status_group = ttk.Frame(filters, style="Status.TFrame")
+        ttk.Label(status_group, text="Статус:", style="Panel.TLabel").pack(side="left", padx=(0, 6))
         self.status_var = tk.StringVar(value="Все статусы")
         status_combo = ttk.Combobox(
-            filters,
+            status_group,
             textvariable=self.status_var,
             values=list(REQUEST_STATUS_CHOICES),
             state="readonly",
             width=16,
         )
-        status_combo.grid(row=0, column=3, padx=(0, 8))
+        status_combo.pack(side="left")
+        filters.add(status_group)
         status_combo.bind("<<ComboboxSelected>>", lambda _: self.refresh())
 
-        ttk.Button(
+        filters.add(ttk.Button(
             filters,
             text="Сбросить",
             command=self.clear_filters,
             style="Toolbar.TButton",
-        ).grid(row=0, column=4)
+        ))
 
         self.stats_label = ttk.Label(self, style="Summary.TLabel")
 
@@ -193,6 +163,7 @@ class RequestsView(ttk.Frame):
         self.tree.bind("<Button-3>", self._show_context_menu)
         self.tree.bind("<Double-1>", self.on_double_click)
         self.tree.bind("<Delete>", lambda _: self.delete_selected())
+        self.tree.bind("<<TreeviewSelect>>", self._update_selection_actions, add="+")
 
         self.context_menu = tk.Menu(self, tearoff=0)
         self.context_menu.add_command(
@@ -212,14 +183,27 @@ class RequestsView(ttk.Frame):
             label="Удалить заявку",
             command=self.delete_selected,
         )
+        self._update_selection_actions()
+
+    def _update_selection_actions(self, _event=None):
+        """Одиночные действия доступны для одной заявки, удаление — для нескольких."""
+        count = len(self.tree.selection())
+        for index, button in enumerate(self.selection_buttons):
+            enabled = count > 0 if index == len(self.selection_buttons) - 1 else count == 1
+            button.state(["!disabled"] if enabled else ["disabled"])
+        for index in (0, 1, 3):
+            self.context_menu.entryconfigure(index, state="normal" if count == 1 else "disabled")
+        self.context_menu.entryconfigure(4, state="normal" if count else "disabled")
 
     def _show_context_menu(self, event: tk.Event) -> None:
         """Выбирает заявку под курсором и показывает доступные действия."""
         item = self.tree.identify_row(event.y)
         if not item:
             return
-        self.tree.selection_set(item)
+        if item not in self.tree.selection():
+            self.tree.selection_set(item)
         self.tree.focus(item)
+        self._update_selection_actions()
         self.context_menu.post(event.x_root, event.y_root)
 
     def on_double_click(self, event: tk.Event) -> None:
@@ -250,6 +234,7 @@ class RequestsView(ttk.Frame):
             search=search_query,
         )
 
+        table_state = TableState.capture(self.tree)
         self.tree.delete(*self.tree.get_children())
         counts = {s: 0 for s in CertificateRequestStatus}
 
@@ -292,6 +277,8 @@ class RequestsView(ttk.Frame):
             )
 
         self.sorter.apply()
+        table_state.restore(self.tree)
+        self._update_selection_actions()
 
         if self.requests:
             self.empty_label.hide()
@@ -461,6 +448,11 @@ class RequestsView(ttk.Frame):
         btn_box.grid(row=5, column=0, columnspan=2, pady=16, sticky="e")
         ttk.Button(btn_box, text="Отмена", command=dialog.destroy).pack(side="right", padx=(6, 0))
         ttk.Button(btn_box, text="Создать заявку", command=save, style="Accent.TButton").pack(side="right")
+        frame.columnconfigure(1, weight=1)
+        for entry in (dept_entry, num_entry, comment_entry):
+            entry.grid_configure(sticky="ew")
+        emp_combo.focus_set()
+        fit_dialog(dialog, width=540, height=360)
 
     def show_status_dialog(self) -> None:
         """Отображает диалог смены статуса выбранной заявки."""
@@ -518,6 +510,8 @@ class RequestsView(ttk.Frame):
         btn_box.pack(fill="x", pady=12, side="bottom")
         ttk.Button(btn_box, text="Отмена", command=dialog.destroy).pack(side="right", padx=(6, 0))
         ttk.Button(btn_box, text="Применить", command=apply_status, style="Accent.TButton").pack(side="right")
+        combo.focus_set()
+        fit_dialog(dialog, width=360, height=180)
 
     def show_link_dialog(self) -> None:
         """Отображает диалог привязки выпущенного сертификата к заявке."""
@@ -660,6 +654,8 @@ class RequestsView(ttk.Frame):
         btn_box.pack(fill="x", pady=12, side="bottom")
         ttk.Button(btn_box, text="Отмена", command=dialog.destroy).pack(side="right", padx=(6, 0))
         ttk.Button(btn_box, text="Привязать", command=link, style="Accent.TButton").pack(side="right")
+        search_entry.focus_set()
+        fit_dialog(dialog, width=760, height=440)
 
     def mark_processed(self) -> None:
         """Переводит выбранную заявку в статус «Обработана» без удаления из базы данных."""

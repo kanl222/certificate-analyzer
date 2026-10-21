@@ -24,8 +24,10 @@ from certificate_analyzer.presentation.gui.widgets.certificate_details import (
 )
 from certificate_analyzer.presentation.gui.widgets.table_state import (
     EmptyStateLabel,
+    TableState,
     sort_heading_text,
 )
+from certificate_analyzer.presentation.gui.widgets.responsive_bar import ResponsiveBar
 
 STATUS_LABELS: dict[str, CertificateStatus | None] = {
     "Все статусы": None,
@@ -101,7 +103,7 @@ class CertificatesView(ttk.Frame):
             None
         """
         # Панель инструментов
-        toolbar = ttk.Frame(self, style="Panel.TFrame", padding=(8, 6))
+        toolbar = ResponsiveBar(self)
         toolbar.pack(fill="x", pady=(0, 8))
 
         self.import_buttons.clear()
@@ -112,82 +114,86 @@ class CertificatesView(ttk.Frame):
             button = ttk.Button(
                 toolbar, text=label, command=action, style=button_style
             )
-            button.pack(side="left", padx=(0, 6))
+            toolbar.add(button)
             self.import_buttons.append(button)
 
-        ttk.Button(
+        toolbar.add(ttk.Button(
             toolbar,
             text="Обновить",
             command=self.refresh,
             style="Toolbar.TButton",
-        ).pack(side="left", padx=3)
+        ))
 
-        ttk.Button(
+        toolbar.add(ttk.Button(
             toolbar,
             text="Отчёт",
             command=self.export_report,
             style="Toolbar.TButton",
-        ).pack(side="left", padx=3)
+        ))
 
         # Метка сводной статистики
         self.stats_label = ttk.Label(self, style="Summary.TLabel")
 
         # Панель фильтров
-        filters = ttk.Frame(self, style="Panel.TFrame", padding=(8, 6))
+        filters = ResponsiveBar(self)
         filters.pack(fill="x", pady=(0, 8))
 
-        filters.columnconfigure(1, weight=1)
-        ttk.Label(filters, text="Поиск:", style="Panel.TLabel").grid(
-            row=0, column=0, sticky="w"
-        )
+        search_group = ttk.Frame(filters, style="Status.TFrame")
+        ttk.Label(search_group, text="Поиск:", style="Panel.TLabel").pack(side="left", padx=(0, 6))
         self.search_var.trace_add("write", self._search_changed)
-        ttk.Entry(filters, textvariable=self.search_var, width=24).grid(
-            row=0, column=1, sticky="ew", padx=(6, 12)
-        )
+        self.search_entry = ttk.Entry(search_group, textvariable=self.search_var, width=24)
+        self.search_entry.pack(side="left", fill="x", expand=True)
+        self.search_entry.bind("<Return>", lambda _: self.refresh(reset=True))
+        filters.add(search_group, stretch=True)
 
+        status_group = ttk.Frame(filters, style="Status.TFrame")
+        ttk.Label(status_group, text="Статус:", style="Panel.TLabel").pack(side="left", padx=(0, 6))
         status = ttk.Combobox(
-            filters,
+            status_group,
             textvariable=self.status_var,
             values=list(STATUS_LABELS),
             state="readonly",
             width=18,
         )
-        status.grid(row=0, column=2, padx=(0, 12))
+        status.pack(side="left")
+        filters.add(status_group)
         status.bind("<<ComboboxSelected>>", lambda _: self.refresh(reset=True))
 
-        ttk.Label(filters, text="Срок с:", style="Panel.TLabel").grid(
-            row=0, column=3, sticky="e", padx=(0, 4)
-        )
-        ttk.Entry(filters, textvariable=self.date_from_var, width=11).grid(
-            row=0, column=4
-        )
+        dates = ttk.Frame(filters, style="Status.TFrame")
+        ttk.Label(dates, text="Срок с:", style="Panel.TLabel").pack(side="left", padx=(0, 6))
+        self.date_from_entry = ttk.Entry(dates, textvariable=self.date_from_var, width=12)
+        self.date_from_entry.pack(side="left")
+        ttk.Label(dates, text="по:", style="Panel.TLabel").pack(side="left", padx=6)
+        self.date_to_entry = ttk.Entry(dates, textvariable=self.date_to_var, width=12)
+        self.date_to_entry.pack(side="left")
+        for entry in (self.date_from_entry, self.date_to_entry):
+            entry.bind("<Return>", lambda _: self.refresh(reset=True))
+        filters.add(dates)
 
-        ttk.Label(filters, text="по:", style="Panel.TLabel").grid(
-            row=0, column=5, padx=(6, 4)
-        )
-        ttk.Entry(filters, textvariable=self.date_to_var, width=11).grid(
-            row=0, column=6
-        )
-
-        ttk.Button(
+        filters.add(ttk.Button(
             filters,
             text="Применить",
             command=lambda: self.refresh(reset=True),
             style="Toolbar.TButton",
-        ).grid(row=0, column=7, padx=(12, 5))
+        ))
 
-        ttk.Button(
+        filters.add(ttk.Button(
             filters,
             text="Сбросить",
             command=self.clear_filters,
             style="Toolbar.TButton",
-        ).grid(row=0, column=8)
+        ))
 
-        ttk.Label(
+        self.filter_error = ttk.Label(self, style="Error.TLabel", wraplength=600)
+
+        hint = ttk.Label(
             self,
             text="Даты фильтра: ГГГГ-ММ-ДД. Поиск: ФИО, файл, номер, email, кабинет, подразделение, телефон.",
             style="Muted.TLabel",
-        ).pack(anchor="w")
+        )
+        hint.pack(fill="x")
+        hint.bind("<Configure>", lambda event: hint.configure(wraplength=max(120, event.width)))
+        self._filter_hint = hint
 
         # Основная рабочая область: список слева, свойства справа.
         content = ttk.Panedwindow(self, orient=tk.HORIZONTAL)
@@ -266,7 +272,8 @@ class CertificatesView(ttk.Frame):
         def _on_tree_context(event: tk.Event) -> None:
             item = self.tree.identify_row(event.y)
             if item:
-                self.tree.selection_set(item)
+                if item not in self.tree.selection():
+                    self.tree.selection_set(item)
                 self.show_details()
                 self._tree_menu.post(event.x_root, event.y_root)
 
@@ -409,26 +416,57 @@ class CertificatesView(ttk.Frame):
         self.date_to_var.set("")
         self.refresh(reset=True)
 
+    def _validated_dates(self) -> tuple[date | None, date | None] | None:
+        """Проверяет даты до обновления списка и показывает исправимую ошибку рядом."""
+        date_from_val = self.date_from_var.get().strip()
+        date_to_val = self.date_to_var.get().strip()
+        invalid = []
+        dates = []
+        for value, entry in ((date_from_val, self.date_from_entry), (date_to_val, self.date_to_entry)):
+            entry.state(["!invalid"])
+            try:
+                parsed = date.fromisoformat(value) if value else None
+                if parsed and parsed.isoformat() != value:
+                    raise ValueError
+                dates.append(parsed)
+            except ValueError:
+                invalid.append(entry)
+                dates.append(None)
+        error = "Введите дату в формате ГГГГ-ММ-ДД, например 2026-10-21." if invalid else ""
+        if not error and dates[0] and dates[1] and dates[0] > dates[1]:
+            invalid = [self.date_from_entry, self.date_to_entry]
+            error = "Начало периода должно быть не позже окончания. Исправьте даты."
+        if error:
+            for entry in invalid:
+                entry.state(["invalid"])
+            self.filter_error.configure(text=error)
+            self.filter_error.pack(fill="x", before=self._filter_hint, pady=(0, 4))
+            self.on_message(error)
+            return
+        self.filter_error.pack_forget()
+        return dates[0], dates[1]
+
     def refresh(self, reset: bool = False) -> None:
-        """Загружает данные из базы в таблицу в соответствии с текущими фильтрами.
+        """Загружает данные по фильтрам, сохраняя контекст выбранной записи.
 
         Args:
             reset: Если True, сбрасывает пагинацию на первую страницу.
-
-        Returns:
-            None
         """
+        if self.search_after:
+            self.after_cancel(self.search_after)
+            self.search_after = None
+        dates = self._validated_dates()
+        if dates is None:
+            return
+        table_state = TableState.capture(self.tree)
         if reset:
             self.offset = 0
         try:
-            date_from_val = self.date_from_var.get()
-            date_to_val = self.date_to_var.get()
-
             query = CertificateQuery(
                 search=self.search_var.get(),
                 status=STATUS_LABELS[self.status_var.get()],
-                date_from=date.fromisoformat(date_from_val) if date_from_val else None,
-                date_to=date.fromisoformat(date_to_val) if date_to_val else None,
+                date_from=dates[0],
+                date_to=dates[1],
                 sort=self.sort,
                 descending=self.descending,
                 limit=100,
@@ -474,8 +512,8 @@ class CertificatesView(ttk.Frame):
                 (
                     self.search_var.get().strip(),
                     self.status_var.get() != "Все статусы",
-                    date_from_val,
-                    date_to_val,
+                    query.date_from,
+                    query.date_to,
                 )
             ):
                 self.empty_label.show(
@@ -506,8 +544,10 @@ class CertificatesView(ttk.Frame):
                 if self.offset + len(records) < stats["total"]
                 else "disabled"
             )
-            self.details.clear()
-            self._set_detail_actions_enabled(False)
+            if reset:
+                table_state.vertical = 0
+            table_state.restore(self.tree)
+            self.show_details()
         except Exception as exc:
             self.on_message(str(exc))
 

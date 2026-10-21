@@ -30,6 +30,10 @@ def test_sort_dates_with_missing_values_and_toggle():
 def test_refresh_keeps_selected_sort_order():
     tree = Mock()
     tree.get_children.return_value = []
+    tree.selection.return_value = ()
+    tree.focus.return_value = ""
+    tree.xview.return_value = (0.0, 1.0)
+    tree.yview.return_value = (0.0, 1.0)
     records = [{"doc_number": "later", "expiry_date": "01.07.2027"},
                {"doc_number": "earlier", "expiry_date": "01.07.2026"}]
     view = SimpleNamespace(tree=tree, mchd_data=records, filtered_data=list(records),

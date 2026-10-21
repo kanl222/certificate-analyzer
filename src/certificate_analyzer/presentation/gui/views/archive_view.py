@@ -5,6 +5,7 @@ from datetime import datetime
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from certificate_analyzer.presentation.gui.widgets.table_sort import TreeviewSorter
+from certificate_analyzer.presentation.gui.widgets.scrollable_panel import ScrollablePanel
 from certificate_analyzer.domain.enums.certificate_request_status import CertificateRequestStatus
 
 LABELS = {"certificates": "Сертификаты", "employees": "Сотрудники", "mchds": "МЧД", "requests": "Заявки"}
@@ -118,6 +119,8 @@ class ExportArchiveWizard(tk.Toplevel):
         self.sync_dependencies()
         title = LABELS[stages[self.step]] if self.step < len(LABELS) else "Пароль и сохранение"
         ttk.Label(self.body, text=f"Шаг {self.step + 1} из {len(LABELS) + 1} — {title}", font=("", 13, "bold")).pack(anchor="w", pady=(0, 12))
+        navigation = ttk.Frame(self.body)
+        navigation.pack(side="bottom", fill="x", pady=(12, 0))
         if self.step < len(LABELS):
             category = stages[self.step]
             controls = ttk.Frame(self.body)
@@ -156,14 +159,18 @@ class ExportArchiveWizard(tk.Toplevel):
             if not self.records[category]:
                 ttk.Label(self.body, text="Нет записей для экспорта").pack(anchor="w")
         else:
+            form = ScrollablePanel(self.body)
+            form.pack(fill="both", expand=True)
             for category, label in LABELS.items():
                 count = sum(variable.get() for variable in self.variables[category].values())
-                ttk.Label(self.body, text=f"{label}: {count}").pack(anchor="w", pady=3)
+                ttk.Label(form.body, text=f"{label}: {count}").pack(anchor="w", pady=3)
             for label, variable in (("Пароль (не менее 12 символов)", self.password), ("Повторите пароль", self.confirm)):
-                ttk.Label(self.body, text=label).pack(anchor="w", pady=(12, 4))
-                ttk.Entry(self.body, textvariable=variable, show="•", width=44).pack(anchor="w")
-        navigation = ttk.Frame(self.body)
-        navigation.pack(side="bottom", fill="x", pady=(12, 0))
+                ttk.Label(form.body, text=label).pack(anchor="w", pady=(12, 4))
+                entry = ttk.Entry(form.body, textvariable=variable, show="•", width=32)
+                entry.pack(fill="x")
+                entry.bind("<FocusIn>", lambda _, entry=entry: form.canvas.yview_moveto(
+                    min(1, entry.winfo_y() / max(1, form.body.winfo_height()))))
+            form.bind_mousewheel()
         ttk.Button(navigation, text="Отмена", command=self.destroy).pack(side="left")
         ttk.Button(navigation, text="Назад", command=lambda: self.move(-1), state="disabled" if self.step == 0 else "normal").pack(side="left", padx=8)
         ttk.Button(navigation, text="Далее" if self.step < len(LABELS) else "Сохранить архив…", command=(lambda: self.move(1)) if self.step < len(LABELS) else self.save).pack(side="right")

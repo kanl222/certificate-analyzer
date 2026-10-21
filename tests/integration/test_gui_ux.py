@@ -89,6 +89,8 @@ def test_edit_menu_tracks_active_tab_and_dispatches_actions(application, tk_root
         change_status = Mock()
         monkeypatch.setattr(view.requests_view, "show_status_dialog", change_status)
         view.notebook.select(view.requests_tab)
+        view.requests_view.tree.insert("", "end", iid="menu-selection")
+        view.requests_view.tree.selection_set("menu-selection")
         view.menu_bar.update_edit_menu()
         view.menu_bar.edit_menu.invoke(3)
         change_status.assert_called_once()

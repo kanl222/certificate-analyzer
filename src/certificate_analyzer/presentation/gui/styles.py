@@ -1,5 +1,5 @@
 import sys
-from tkinter import ttk
+from tkinter import font, ttk
 
 
 BG_COLOR = "#F5F7FA"
@@ -7,7 +7,7 @@ UI_FONT = "Segoe UI" if sys.platform == "win32" else "Noto Sans"
 MONO_FONT = "Consolas" if sys.platform == "win32" else "DejaVu Sans Mono"
 HEADER_COLOR = "#FFFFFF"
 TEXT_COLOR = "#263238"
-SECONDARY_TEXT_COLOR = "#78909C"
+SECONDARY_TEXT_COLOR = "#526674"
 ACCENT_COLOR = "#6C5CE7"
 BUTTON_COLOR = "#6C5CE7"
 BUTTON_HOVER = "#5B4BC4"
@@ -31,7 +31,7 @@ SIDEBAR_TEXT_COLOR = "#F5F7FA"
 
 CARD_BG_COLOR = "#FFFFFF"
 CARD_BORDER_COLOR = "#E1E8ED"
-CARD_TITLE_COLOR = "#78909C"
+CARD_TITLE_COLOR = SECONDARY_TEXT_COLOR
 CARD_VALUE_COLOR = "#263238"
 
 MCHD_COLOR = "#9B59B6"
@@ -66,7 +66,7 @@ def configure_gui_styles(root) -> None:
     )
     style.configure(
         "Treeview",
-        rowheight=30,
+        rowheight=max(30, font.Font(root=root, family=UI_FONT, size=10).metrics("linespace") + 12),
         background=CARD_BG_COLOR,
         fieldbackground=CARD_BG_COLOR,
         borderwidth=0,
@@ -98,6 +98,12 @@ def configure_gui_styles(root) -> None:
         foreground=TEXT_COLOR,
     )
     style.configure("Status.TFrame", background=CARD_BG_COLOR)
+    style.configure("Settings.TEntry", padding=(8, 6))
+    style.configure("Settings.TSpinbox", padding=(8, 6))
+    style.configure(
+        "Settings.Hint.TLabel", background=CARD_BG_COLOR,
+        foreground=SECONDARY_TEXT_COLOR,
+    )
     style.configure(
         "Status.TLabel", background=CARD_BG_COLOR, foreground=TEXT_COLOR
     )
@@ -115,6 +121,10 @@ def configure_gui_styles(root) -> None:
         font=(UI_FONT, 9),
     )
     style.configure("Toolbar.TButton", padding=(10, 6))
+    style.configure("Danger.TButton", padding=(10, 6), foreground="#A82020")
+    style.map("Danger.TButton", foreground=[("disabled", SECONDARY_TEXT_COLOR)])
+    style.configure("Error.TLabel", background=CARD_BG_COLOR, foreground="#A82020")
+    style.configure("Empty.TLabel", background=CARD_BG_COLOR, foreground=SECONDARY_TEXT_COLOR)
     style.configure(
         "Accent.TButton",
         padding=(12, 6),

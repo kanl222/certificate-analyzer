@@ -125,27 +125,38 @@ class AppMenuBar:
         else:
             actions = None
         if actions is not None:
-            for label, command in actions:
-                edit_menu.add_command(label=label, command=command)
+            count = len(view.tree.selection())
+            for index, (label, command) in enumerate(actions):
+                creates_record = index == 0 and active != str(self.handler.mchd_tab)
+                enabled = creates_record or count > 0
+                if active == str(self.handler.requests_tab) and index in (1, 2, 3):
+                    enabled = count == 1
+                edit_menu.add_command(label=label, command=command,
+                                      state="normal" if enabled else "disabled")
             return
+        state = "normal" if self.handler.certs_tab.tree.selection() else "disabled"
         edit_menu.add_command(
             label="Открыть сертификат",
             command=self.handler.open_certificate,
+            state=state,
         )
         edit_menu.add_command(
             label="Показать в проводнике",
             command=self.handler.reveal_certificate_file,
+            state=state,
         )
         edit_menu.add_separator()
         edit_menu.add_command(
             label="Удалить из учета",
             command=self.handler.delete_selected,
             accelerator="Delete",
+            state=state,
         )
         edit_menu.add_command(
             label="Удалить физический файл (в корзину)...",
             command=self.handler.delete_physical_file,
             accelerator="Shift+Delete",
+            state=state,
         )
 
     def _build_view_menu(self) -> None:

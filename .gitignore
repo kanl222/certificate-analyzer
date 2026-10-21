@@ -54,6 +54,8 @@ scratch/*
 *.sqlite3-*
 *.sqlite3.*
 *.ipc-token*
+*.ipc-port*
+*.ipc-lock
 *.cat
 MEMORY.md
 *.log

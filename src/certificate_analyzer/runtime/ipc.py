@@ -1,5 +1,6 @@
 """Модель единого пишущего процесса (Single Writer) и локальный транспорт JSON."""
 
+import errno
 import hashlib
 import hmac
 import json
@@ -14,6 +15,7 @@ import time
 
 from certificate_analyzer.exceptions import CertificateAnalyzerError
 from certificate_analyzer.runtime.write_api import COMMANDS, decode, encode
+from certificate_analyzer.runtime.writer_lock import WriterLock
 
 MAX_MESSAGE = 16 * 1024 * 1024
 logger = logging.getLogger(__name__)
@@ -27,10 +29,36 @@ class WriteCommandError(CertificateAnalyzerError, ValueError):
     pass
 
 
-def endpoint(path):
+def _default_endpoint(path):
     canonical = os.path.normcase(str(Path(path).resolve()))
     digest = hashlib.sha256(canonical.encode()).hexdigest()
     return ("127.0.0.1", 20000 + int(digest[:8], 16) % 30000)
+
+
+def port_path(path):
+    """Возвращает путь к опубликованному порту текущего владельца базы."""
+    return Path(str(Path(path).resolve()) + ".ipc-port")
+
+
+def endpoint(path):
+    """Использует опубликованный порт, сохраняя совместимость с прежним демоном."""
+    try:
+        with port_path(path).open(encoding="ascii") as stream:
+            port = int(stream.read(16).strip())
+        if 1 <= port <= 65535:
+            return ("127.0.0.1", port)
+    except (OSError, ValueError, UnicodeError):
+        pass
+    return _default_endpoint(path)
+
+
+def _listening(address):
+    """Не позволяет обходить действующий старый демон выбором другого порта."""
+    try:
+        with socket.create_connection(address, timeout=0.25):
+            return True
+    except OSError:
+        return False
 
 
 def token_path(path):
@@ -121,26 +149,57 @@ class WriterServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     request_queue_size = 32
 
     def __init__(self, path):
-        # Привязка к сокету до открытия SQLite: второй процесс никогда не должен выполнять миграции/запись.
-        super().__init__(endpoint(path), _Handler, bind_and_activate=False)
+        # Блокировка берётся до открытия SQLite и не зависит от доступности порта.
+        self.path = Path(path).resolve()
+        self._closed = False
+        self._port_published = False
+        self._writer_lock = WriterLock(self.path)
         try:
+            address = _default_endpoint(self.path)
+            super().__init__(address, _Handler, bind_and_activate=False)
             if os.name == "nt":
                 self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-            self.server_bind()
+            try:
+                self.server_bind()
+            except OSError as exc:
+                denied = exc.errno in (errno.EACCES, errno.EPERM) or getattr(exc, "winerror", None) == 10013
+                if not denied or _listening(address):
+                    raise
+                self.server_address = (address[0], 0)
+                self.server_bind()
             self.server_activate()
+            # Старая информация после аварии не должна выглядеть как готовый API.
+            token_path(self.path).unlink(missing_ok=True)
+            port_path(self.path).unlink(missing_ok=True)
         except Exception:
             self.server_close()
             raise
         self.command_lock = threading.RLock()
         self.stop_requested = threading.Event()
         self.token = secrets.token_hex(32)
-        self.path = Path(path)
 
     def attach(self, app):
         self.app = app
-        target = token_path(self.path).with_suffix(".ipc-token." + str(os.getpid()))
+        self._publish_private(port_path(self.path), str(self.server_address[1]))
+        self._port_published = True
+        self._publish_private(token_path(self.path), self.token)
+
+    @staticmethod
+    def _publish_private(destination, value):
+        """Атомарно публикует данные IPC с доступом только текущему пользователю."""
+        target = destination.with_name(destination.name + "." + str(os.getpid()))
+        try:
+            target.touch(mode=0o600, exist_ok=True)
+            WriterServer._restrict_access(target)
+            target.write_text(value, encoding="ascii")
+            target.replace(destination)
+        finally:
+            target.unlink(missing_ok=True)
+
+    @staticmethod
+    def _restrict_access(target):
+        """Выставляет права до записи токена или публикации порта."""
         # Ограничение прав доступа перед записью секрета, в том числе для Windows.
-        target.touch(mode=0o600, exist_ok=True)
         if os.name == "nt":
             import win32api
             import win32con
@@ -157,15 +216,26 @@ class WriterServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
                 None, None, acl, None)
         else:
             target.chmod(0o600)
-        target.write_text(self.token, encoding="ascii")
-        target.replace(token_path(self.path))
 
     def server_close(self):
-        super().server_close()
-        if hasattr(self, "token"):
-            target = token_path(self.path)
-            try:
-                if target.read_text(encoding="ascii") == self.token:
-                    target.unlink()
-            except OSError:
-                pass
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            if hasattr(self, "socket"):
+                super().server_close()
+            if hasattr(self, "token"):
+                self._remove_published(token_path(self.path), self.token)
+            if self._port_published:
+                self._remove_published(port_path(self.path), str(self.server_address[1]))
+        finally:
+            self._writer_lock.close()
+
+    @staticmethod
+    def _remove_published(path, expected):
+        """Удаляет только принадлежащую этому экземпляру информацию IPC."""
+        try:
+            if path.read_text(encoding="ascii") == expected:
+                path.unlink()
+        except (OSError, UnicodeError):
+            pass

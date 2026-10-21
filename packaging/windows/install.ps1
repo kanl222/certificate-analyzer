@@ -84,6 +84,7 @@ if (-not $NoShortcuts -and -not $ServiceOnly) {
     $CertExe = Join-Path $VenvScripts "certificate-analyzer.exe"
     $TargetExe = if (Test-Path $CertExe) { $CertExe } else { Join-Path $VenvScripts "pythonw.exe" }
     $Arguments = if (Test-Path $CertExe) { "gui" } else { "-m certificate_analyzer gui" }
+    $IconPath = Join-Path $ProjectRoot.Path "src\certificate_analyzer\assets\app-icon.ico"
 
     $WshShell = New-Object -ComObject WScript.Shell
 
@@ -94,6 +95,7 @@ if (-not $NoShortcuts -and -not $ServiceOnly) {
     $DesktopShortcut.Arguments = $Arguments
     $DesktopShortcut.WorkingDirectory = $ProjectRoot.Path
     $DesktopShortcut.Description = "Анализатор сертификатов X.509 и машиночитаемых доверенностей"
+    if (Test-Path -LiteralPath $IconPath) { $DesktopShortcut.IconLocation = "$IconPath,0" }
     $DesktopShortcut.Save()
     Write-Host "Ярлык на рабочем столе создан."
 
@@ -105,6 +107,7 @@ if (-not $NoShortcuts -and -not $ServiceOnly) {
         $StartShortcut.Arguments = $Arguments
         $StartShortcut.WorkingDirectory = $ProjectRoot.Path
         $StartShortcut.Description = "Анализатор сертификатов X.509 и машиночитаемых доверенностей"
+        if (Test-Path -LiteralPath $IconPath) { $StartShortcut.IconLocation = "$IconPath,0" }
         $StartShortcut.Save()
         Write-Host "Ярлык в меню 'Пуск' создан."
     }

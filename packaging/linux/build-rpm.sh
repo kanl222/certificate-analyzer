@@ -66,8 +66,13 @@ fi
 if [ "$DISTRO" = auto ]; then
     DISTRO=generic
     if [ -r /etc/os-release ]; then
-        . /etc/os-release
-        case " ${ID:-} ${ID_LIKE:-} " in *altlinux*|*" alt "*) DISTRO=alt ;; esac
+        DISTRO="$(
+            . /etc/os-release
+            case " ${ID:-} ${ID_LIKE:-} " in
+                *altlinux*|*" alt "*) printf '%s' alt ;;
+                *) printf '%s' generic ;;
+            esac
+        )"
     fi
 fi
 case "$DISTRO" in alt) ALT_RPM=1; RELEASE=alt1 ;; generic) ALT_RPM=0; RELEASE=1 ;; *) echo "Неизвестный профиль: $DISTRO" >&2; exit 1 ;; esac

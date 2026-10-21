@@ -1,4 +1,24 @@
 import sys
+import logging
+
+WINDOWS_APP_ID = "kanl.CertificateAnalyzer"
+WINDOW_CLASS = "CertificateAnalyzer"
+
+
+def _enable_windows_identity() -> None:
+    """Separate the GUI from Python's taskbar group before creating windows."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    try:
+        set_app_id = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
+        set_app_id.argtypes = [ctypes.c_wchar_p]
+        set_app_id.restype = ctypes.c_long
+        result = set_app_id(WINDOWS_APP_ID)
+        if result != 0:
+            logging.getLogger(__name__).warning("Не удалось задать идентификатор приложения Windows: %s", result)
+    except (AttributeError, OSError):
+        logging.getLogger(__name__).warning("Не удалось настроить значок панели задач", exc_info=True)
 
 
 def _enable_dpi_awareness() -> None:
@@ -26,7 +46,8 @@ def run_as_gui(application, config_path=None):
         application = create_application(settings=settings, read_only=True)
 
     _enable_dpi_awareness()
-    root = tk.Tk()
+    _enable_windows_identity()
+    root = tk.Tk(className=WINDOW_CLASS)
     def report_callback_error(error_type, error, traceback):
         from certificate_analyzer.runtime.ipc import WriterUnavailable, WriteCommandError
         if isinstance(error, (WriterUnavailable, WriteCommandError)):
