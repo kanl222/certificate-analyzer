@@ -327,6 +327,7 @@ class RequestsView(ttk.Frame):
                 "Заявок пока нет\nСоздайте первую заявку на сертификат"
             )
 
+        self.page_label.config(text=f"{self.offset + 1 if self.requests else 0}–{self.offset + len(self.requests)} из {total}")
         summary = (
             f"Всего заявок: {total}   "
             f"В работе: {counts.get(CertificateRequestStatus.IN_PROGRESS, 0)}   "
@@ -392,7 +393,6 @@ class RequestsView(ttk.Frame):
             except Exception:
                 pass
 
-        emp_names = list(dict.fromkeys(e.full_name.strip() for e in employees if e.full_name.strip()))
 
         name_var = tk.StringVar(value=initial_employee)
         dept_var = tk.StringVar(value=initial_department)
@@ -427,24 +427,16 @@ class RequestsView(ttk.Frame):
         emp_box = ttk.Frame(frame)
         emp_box.grid(row=0, column=1, sticky="ew", pady=6)
 
-        emp_combo = ttk.Combobox(
+        from certificate_analyzer.presentation.gui.widgets.employee_autocomplete import EmployeeAutocomplete
+        emp_combo = EmployeeAutocomplete(
             emp_box,
             textvariable=name_var,
-            values=emp_names,
+            employees=employees,
+            on_select=select_employee,
             width=28,
         )
         emp_combo.pack(side="left", fill="x", expand=True)
         _add_entry_context_menu(emp_combo)
-
-        def on_combo_selected(_event=None):
-            matches = matching_employees()
-            if len(matches) == 1:
-                select_employee(matches[0])
-            else:
-                clear_selection()
-                dept_var.set("")
-
-        emp_combo.bind("<<ComboboxSelected>>", on_combo_selected)
 
         def open_picker():
             picker = EmployeePickerDialog(dialog, employees=employees)
@@ -464,7 +456,6 @@ class RequestsView(ttk.Frame):
             def on_save(employee):
                 saved = self.app.employees.save_employee(employee)
                 employees.append(saved)
-                emp_combo.configure(values=list(dict.fromkeys(e.full_name.strip() for e in employees)))
                 select_employee(saved)
 
             employee_dialog = EmployeeDialog(dialog, on_save=on_save)

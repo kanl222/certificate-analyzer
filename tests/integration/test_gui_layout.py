@@ -225,7 +225,7 @@ def test_dialog_buttons_and_fields_fit_their_windows(application, tk_runtime, sc
         app.requests_view.show_create_dialog()
         app.requests_view.show_status_dialog()
         dialogs.extend(child for child in descendants(root)
-                       if isinstance(child, tk.Toplevel) and child not in dialogs)
+                       if isinstance(child, tk.Toplevel) and child not in dialogs and not child.overrideredirect())
         for dialog in dialogs:
             root.update()
             for widget in descendants(dialog):

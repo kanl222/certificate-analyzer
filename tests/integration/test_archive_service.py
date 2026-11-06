@@ -83,6 +83,27 @@ def test_read_only_routes_archive_through_ipc(tmp_path, monkeypatch):
     assert calls[0][0][0:2] == ("archive", "export")
 
 
+def test_full_backup_restores_requests_audit_history_and_files(tmp_path, certificate_file):
+    from certificate_analyzer.infrastructure.persistence.notification_history import NotificationHistoryStore
+
+    history = [{"time": "2026-11-06", "message": "Проверка", "type": "info"}]
+    NotificationHistoryStore().save(history)
+    with make_app(tmp_path, "source") as source, make_app(tmp_path, "target") as target:
+        source.certificates.import_files([certificate_file()])
+        employee(source.database.path, 100, "Person", "OFFICE")
+        source.certificate_requests.create_request(request_number="BACKUP-1", employee_id=100)
+        audit_count = len(source.audit.list_events())
+        assert audit_count > 0
+        archive = tmp_path / "full.cat"
+        assert source.archive.backup(archive, "long-secret-password")["path"] == str(archive)
+        NotificationHistoryStore().save([])
+        target.archive.restore(archive, "long-secret-password", "replace")
+        assert target.certificate_requests.list_requests()[0].request_number == "BACKUP-1"
+        assert len(target.audit.list_events()) == audit_count
+        assert NotificationHistoryStore().load() == history
+        assert Path(target.certificates.list()[0].source_path).is_file()
+
+
 def test_history_and_mchd_transfer(tmp_path, mchd_file):
     from certificate_analyzer.infrastructure.persistence.notification_history import NotificationHistoryStore
     history = [{"time": "2026-10-09", "message": "Example", "type": "info"}]

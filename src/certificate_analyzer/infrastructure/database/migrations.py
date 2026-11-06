@@ -6,7 +6,7 @@ from pathlib import Path
 import sqlite3
 from datetime import datetime, timezone
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 
@@ -212,6 +212,16 @@ def migrate(engine, path):
                     connection.exec_driver_sql(
                         "ALTER TABLE employees ADD COLUMN is_management BOOLEAN NOT NULL DEFAULT 0"
                     )
+
+            if current_version < 6 and "certificates" in tables:
+                cols = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(certificates)")}
+                if "comment" not in cols:
+                    connection.exec_driver_sql("ALTER TABLE certificates ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
+
+            if current_version < 6 and "employees" in tables:
+                cols = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(employees)")}
+                if "comment" not in cols:
+                    connection.exec_driver_sql("ALTER TABLE employees ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
 
             if connection.exec_driver_sql("PRAGMA integrity_check").all() != [("ok",)]:
                 raise ValueError("Проверка целостности после миграции не пройдена")

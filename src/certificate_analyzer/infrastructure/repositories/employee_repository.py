@@ -32,6 +32,7 @@ class EmployeeRepository:
         return Employee(
             id=model.id,
             full_name=model.full_name,
+            comment=model.comment or "",
             department=model.department,
             office=model.office,
             phones=phones,
@@ -63,6 +64,7 @@ class EmployeeRepository:
             if not model:
                 model = EmployeeModel(
                     full_name=employee.full_name,
+                    comment=employee.comment,
                     department=employee.department,
                     office=employee.office,
                     phones=phones_str,
@@ -76,6 +78,7 @@ class EmployeeRepository:
                 session.add(model)
                 session.flush()
             else:
+                model.comment = employee.comment
                 model.full_name = employee.full_name
                 model.department = employee.department
                 model.office = employee.office

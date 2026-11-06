@@ -1,4 +1,3 @@
-from dataclasses import asdict, fields
 from pathlib import Path
 
 from certificate_analyzer.infrastructure.config.paths import config_dir
@@ -17,12 +16,11 @@ def load_settings(path=None):
         return Settings(folders=legacy) if legacy is not None else Settings()
     if not isinstance(data, dict):
         raise ValueError("Конфигурация должна содержать JSON-объект")
-    known = {f.name for f in fields(Settings)}
-    return Settings(**{k: v for k, v in data.items() if k in known})
+    return Settings(**data)
 
 
 def save_settings(settings, path=None):
-    write_json(path or config_dir() / "settings.json", asdict(settings))
+    write_json(path or config_dir() / "settings.json", settings.model_dump(mode="json"))
 
 
 def load_config():

@@ -83,7 +83,7 @@ class CertificatesView(ttk.Frame):
 
         self.search_after: str | None = None
         self.offset = 0
-        self.sort = "subject"
+        self.sort = "valid_to"
         self.descending = False
         self.query = CertificateQuery()
         self._page: dict[str, Any] = {}
@@ -600,6 +600,11 @@ class CertificatesView(ttk.Frame):
             self.details.clear()
             self._set_detail_actions_enabled(False)
             return
+        def save_comment(text):
+            self.app.certificates.update_comment(cert.fingerprint_sha256, text)
+            cert.comment = text
+            self.on_message("Комментарий сохранён")
+        self.details.set_comment(cert.comment, save_comment)
         exists = bool(cert.source_path and Path(cert.source_path).is_file())
         self.details.update_details(
             {

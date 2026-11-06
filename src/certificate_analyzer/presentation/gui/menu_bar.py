@@ -73,6 +73,7 @@ class AppMenuBar:
         )
         file_menu.add_cascade(label="Экспорт", menu=export_menu)
         export_menu.add_command(label="Экспорт хранилища сертификатов…", command=self.handler.export_archive)
+        export_menu.add_command(label="Полная резервная копия…", command=self.handler.backup_archive)
 
         file_menu.add_separator()
         file_menu.add_command(
@@ -273,6 +274,7 @@ class AppMenuBar:
             )
         service_menu.add_separator()
         service_menu.add_command(label="Журнал службы…", command=self.handler.show_service_log)
+        service_menu.add_command(label="Результат операции…", command=self.handler.show_operation_result)
         service_menu.add_separator()
         for label, action in (
             ("Включить автозапуск при входе", "enable_autostart"),

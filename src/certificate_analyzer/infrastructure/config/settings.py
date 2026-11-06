@@ -1,44 +1,67 @@
-from dataclasses import dataclass, field
+"""Validated application settings with environment support."""
 from pathlib import Path
+
+from pydantic import Field, StrictInt, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from certificate_analyzer.constants import CHECK_INTERVAL, WARNING_DAYS
 
 
-@dataclass
-class Settings:
-    folders: dict[str, str] = field(
-        default_factory=lambda: {
-            "Сотрудники": str(Path.home() / "Certs"),
-            "Руководство": str(Path.home() / "ImportantCerts"),
-        }
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="CERTIFICATE_ANALYZER_", extra="ignore", validate_assignment=True,
+        hide_input_in_errors=True,
     )
-    mchd_folder: str = field(default_factory=lambda: str(Path.home() / "MCHD"))
-    export_folder: str = field(
-        default_factory=lambda: str(Path.home() / "CertificateReports")
-    )
+    folders: dict[str, str] = Field(default_factory=lambda: {
+        "Сотрудники": str(Path.home() / "Certs"),
+        "Руководство": str(Path.home() / "ImportantCerts"),
+    })
+    mchd_folder: str = Field(default_factory=lambda: str(Path.home() / "MCHD"), min_length=1)
+    export_folder: str = Field(default_factory=lambda: str(Path.home() / "CertificateReports"), min_length=1)
     phonebook_path: str | None = None
     database_path: str | None = None
     storage_folder: str | None = None
-    warning_days: int = WARNING_DAYS
-    check_interval: int = CHECK_INTERVAL
+    warning_days: StrictInt = Field(default=WARNING_DAYS, ge=0)
+    check_interval: StrictInt = Field(default=CHECK_INTERVAL, gt=0)
+    notification_urls: list[str] = Field(default_factory=list, repr=False)
+    rocketchat_webhook_url: str = Field(default="", repr=False)
 
-    def __post_init__(self):
-        if self.database_path is not None and (
-            not isinstance(self.database_path, str) or not self.database_path.strip()
-        ):
-            raise ValueError("database_path должен быть непустым путём")
-        if self.storage_folder is not None and (
-            not isinstance(self.storage_folder, str) or not self.storage_folder.strip()
-        ):
-            raise ValueError("storage_folder должен быть непустым путём")
-        if not isinstance(self.folders, dict) or not all(
-            isinstance(k, str) and isinstance(v, str) for k, v in self.folders.items()
-        ):
-            raise ValueError("folders должен быть словарём путей")
-        for name in ("mchd_folder", "export_folder"):
-            if not isinstance(getattr(self, name), str) or not getattr(self, name):
-                raise ValueError(f"Некорректный путь: {name}")
-        if type(self.warning_days) is not int or self.warning_days < 0:
-            raise ValueError("warning_days должен быть неотрицательным целым числом")
-        if type(self.check_interval) is not int or self.check_interval <= 0:
-            raise ValueError("check_interval должен быть положительным целым числом")
+    @field_validator("rocketchat_webhook_url")
+    @classmethod
+    def valid_rocketchat_webhook(cls, value):
+        from certificate_analyzer.infrastructure.notifications.rocketchat import rocketchat_apprise_url
+        value = value.strip()
+        if value:
+            rocketchat_apprise_url(value)
+        return value
+
+    @field_validator("database_path", "storage_folder")
+    @classmethod
+    def nonempty_optional_path(cls, value):
+        if value is not None and not value.strip():
+            raise ValueError("Путь должен быть непустым")
+        return value
+
+    @classmethod
+    def settings_customise_sources(cls, settings_cls, init_settings, env_settings, dotenv_settings, file_secret_settings):
+        def environment():
+            values = env_settings()
+            for key in ("warning_days", "check_interval"):
+                value = values.get(key)
+                if isinstance(value, str) and value.strip().lstrip("+-").isdigit():
+                    values[key] = int(value)
+            return values
+        return init_settings, environment
+
+    @field_validator("notification_urls")
+    @classmethod
+    def valid_notification_urls(cls, values):
+        from apprise import Apprise
+        for value in values:
+            if not value.strip() or not Apprise().add(value):
+                raise ValueError("Некорректный адрес канала Apprise")
+        return values
+
+    def updated(self, **changes):
+        """Return a validated copy; model_copy(update=...) skips validation."""
+        return type(self)(**{**self.model_dump(), **changes})

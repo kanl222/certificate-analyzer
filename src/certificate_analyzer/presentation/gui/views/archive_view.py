@@ -192,11 +192,12 @@ class ExportArchiveWizard(tk.Toplevel):
 
 
 class ArchiveDialog(tk.Toplevel):
-    def __init__(self, handler, *, importing=False):
+    def __init__(self, handler, *, importing=False, backup=False):
         super().__init__(handler.root)
         self.handler = handler
         self.importing = importing
-        self.title("Импорт хранилища сертификатов" if importing else "Экспорт хранилища сертификатов")
+        self.backup = backup
+        self.title("Полная резервная копия" if backup else "Импорт хранилища сертификатов" if importing else "Экспорт хранилища сертификатов")
         self.transient(handler.root)
         self.resizable(False, False)
         self.password = tk.StringVar()
@@ -209,6 +210,8 @@ class ArchiveDialog(tk.Toplevel):
             ttk.Radiobutton(frame, text="Добавить к существующим данным", variable=self.mode, value="add").pack(anchor="w")
             ttk.Radiobutton(frame, text="Заменить текущие данные", variable=self.mode, value="replace").pack(anchor="w")
             ttk.Label(frame, text="Перед импортом будет создана защищённая резервная копия.\nДля неё используется пароль импортируемого архива.").pack(anchor="w", pady=8)
+        elif backup:
+            ttk.Label(frame, text="Все сертификаты, сотрудники, МЧД и заявки,\nаудит и история уведомлений.\nВосстановление — через импорт архива.\nНастройки приложения и закрытые ключи не включаются.").pack(anchor="w", pady=8)
         else:
             for category, label in LABELS.items():
                 variable = tk.BooleanVar(value=True)
@@ -240,6 +243,10 @@ class ArchiveDialog(tk.Toplevel):
             else:
                 if self.handler._submit(lambda: self.handler.app.archive.inspect(path, password), lambda result: self._preview(path, password, result)):
                     self.destroy()
+        elif self.backup:
+            path = filedialog.asksaveasfilename(parent=self, defaultextension=".cat", filetypes=[("Защищённый архив", "*.cat")])
+            if path and self.handler._submit(lambda: self.handler.app.archive.backup(path, password), lambda result: messagebox.showinfo("Резервная копия создана", result["path"], parent=self.handler.root)):
+                self.destroy()
         else:
             categories = [key for key, variable in self.selected.items() if variable.get()]
             if not categories:

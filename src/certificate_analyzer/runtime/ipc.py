@@ -12,9 +12,11 @@ import socket
 import socketserver
 import threading
 import time
+from uuid import uuid4
 
 from certificate_analyzer.exceptions import CertificateAnalyzerError
-from certificate_analyzer.runtime.write_api import COMMANDS, decode, encode
+from certificate_analyzer.runtime.write_api import COMMANDS, READ_COMMANDS, decode, encode
+from certificate_analyzer.runtime.operations import OperationJournal
 from certificate_analyzer.runtime.writer_lock import WriterLock
 
 MAX_MESSAGE = 16 * 1024 * 1024
@@ -22,7 +24,9 @@ logger = logging.getLogger(__name__)
 
 
 class WriterUnavailable(CertificateAnalyzerError, RuntimeError):
-    pass
+    def __init__(self, message, operation_id=None):
+        super().__init__(message)
+        self.operation_id = operation_id
 
 
 class WriteCommandError(CertificateAnalyzerError, ValueError):
@@ -84,14 +88,15 @@ class WriteClient:
     def __init__(self, path, timeout=120):
         self.path, self.timeout = Path(path), timeout
 
-    def call(self, service="", method="ping", args=(), kwargs=None):
+    def _exchange(self, service, method, args, kwargs, operation_id=None):
         try:
             token = token_path(self.path).read_text(encoding="ascii")
             with socket.create_connection(endpoint(self.path), timeout=self.timeout) as connection:
                 connection.settimeout(self.timeout)
                 with connection.makefile("rwb") as stream:
                     send(stream, {"version": 1, "token": token, "service": service,
-                                  "method": method, "args": encode(args), "kwargs": encode(kwargs or {})})
+                                  "method": method, "args": encode(args), "kwargs": encode(kwargs or {}),
+                                  "operation_id": operation_id})
                     response = receive(stream)
         except (OSError, ValueError) as exc:
             raise WriterUnavailable(
@@ -99,6 +104,33 @@ class WriteClient:
                 "Если связь прервалась после отправки, проверьте данные перед повтором: "
                 "операция могла завершиться."
             ) from exc
+        return response
+
+    def operation_status(self, operation_id):
+        return self.call(method="operation_status", args=(operation_id,))[0]
+
+    def call(self, service="", method="ping", args=(), kwargs=None, *, operation_id=None):
+        tracked = bool(service) and method not in READ_COMMANDS.get(service, set())
+        operation_id = (operation_id or str(uuid4())) if tracked else None
+        try:
+            response = self._exchange(service, method, args, kwargs, operation_id)
+        except WriterUnavailable as exc:
+            if not operation_id:
+                raise
+            try:
+                status = self.operation_status(operation_id)
+            except (WriterUnavailable, WriteCommandError):
+                status = {"state": "unknown"}
+            if status["state"] == "completed":
+                response = status["response"]
+            else:
+                labels = {"running": "Операция ещё выполняется.", "not_found": "Операция пока не найдена в журнале."}
+                raise WriterUnavailable(
+                    "Фоновый процесс недоступен или не вернул результат. "
+                    + labels.get(status["state"], "Результат операции неизвестен.")
+                    + f"\nИдентификатор: {operation_id}\nПроверьте результат через меню «Служба → Результат операции». "
+                    "Не повторяйте изменение до проверки данных.", operation_id,
+                ) from exc
         if not response.get("ok"):
             raise WriteCommandError(response.get("error", "Ошибка фонового процесса"))
         return decode(response.get("result")), response.get("errors", {})
@@ -111,28 +143,17 @@ class _Handler(socketserver.StreamRequestHandler):
             request = receive(self.rfile)
             if request.get("version") != 1 or not hmac.compare_digest(str(request.get("token", "")), self.server.token):
                 raise ValueError("Отказано в доступе к локальному API")
-            if request["method"] in ("ping", "stop") and not request["service"]:
+            if request["method"] == "operation_status" and not request["service"]:
+                identifier, = decode(request["args"])
+                response = {"ok": True, "result": self.server.operations.status(identifier), "errors": {}}
+            elif request["method"] in ("ping", "stop") and not request["service"]:
                 if request["method"] == "stop":
                     logger.info("Принята команда остановки через IPC")
                     self.server.stop_requested.set()
                 result, errors = {"pid": os.getpid(), "database": str(self.server.app.database.path)}, {}
                 response = {"ok": True, "result": encode(result), "errors": errors}
             else:
-                with self.server.command_lock:
-                    if self.server.stop_requested.is_set():
-                        raise ValueError("Фоновый процесс завершает работу")
-                    name, method = request["service"], request["method"]
-                    if method not in COMMANDS.get(name, set()):
-                        raise ValueError("Неизвестная команда")
-                    service = getattr(self.server.app, name)
-                    started = time.monotonic()
-                    logger.info("Выполнение команды IPC: %s.%s", name, method)
-                    result = getattr(service, method)(*decode(request["args"]), **decode(request["kwargs"]))
-                    errors = getattr(service, "errors", {})
-                    logger.info("Команда IPC завершена: %s.%s, ошибок=%s, длительность=%.2f с",
-                                name, method, len(errors), time.monotonic() - started)
-                    # Freeze the reply before another command can mutate service state.
-                    response = {"ok": True, "result": encode(result), "errors": dict(errors)}
+                response = self.execute(request)
         except Exception as exc:
             logger.exception("Ошибка команды IPC")
             response = {"ok": False, "error": str(exc), "error_type": type(exc).__name__}
@@ -140,6 +161,37 @@ class _Handler(socketserver.StreamRequestHandler):
             send(self.wfile, response)
         except (OSError, ValueError):
             logger.exception("Не удалось вернуть результат IPC")
+
+    def execute(self, request):
+        """Serialize data operations and persist the reply before sending it."""
+        with self.server.command_lock:
+            if self.server.stop_requested.is_set():
+                raise ValueError("Фоновый процесс завершает работу")
+            name, method = request["service"], request["method"]
+            if method not in COMMANDS.get(name, set()):
+                raise ValueError("Неизвестная команда")
+            identifier = request.get("operation_id")
+            response = self.server.operations.begin(identifier, request) if identifier else None
+            if response is None:
+                response = self.invoke(request)
+                if identifier:
+                    self.server.operations.finish(identifier, response)
+            return response
+
+    def invoke(self, request):
+        name, method = request["service"], request["method"]
+        try:
+            service = getattr(self.server.app, name)
+            started = time.monotonic()
+            logger.info("Выполнение команды IPC: %s.%s", name, method)
+            result = getattr(service, method)(*decode(request["args"]), **decode(request["kwargs"]))
+            errors = getattr(service, "errors", {})
+            logger.info("Команда IPC завершена: %s.%s, ошибок=%s, длительность=%.2f с",
+                        name, method, len(errors), time.monotonic() - started)
+            return {"ok": True, "result": encode(result), "errors": encode(dict(errors))}
+        except Exception as exc:
+            logger.exception("Ошибка выполнения команды IPC")
+            return {"ok": False, "error": str(exc), "error_type": type(exc).__name__}
 
 
 class WriterServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -182,6 +234,10 @@ class WriterServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
     def attach(self, app):
         self.app = app
+        journal_path = Path(str(self.path) + ".operations.sqlite")
+        journal_path.touch(mode=0o600, exist_ok=True)
+        self._restrict_access(journal_path)
+        self.operations = OperationJournal(journal_path)
         self._publish_private(port_path(self.path), str(self.server_address[1]))
         self._port_published = True
         self._publish_private(token_path(self.path), self.token)

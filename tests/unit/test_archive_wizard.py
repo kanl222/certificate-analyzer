@@ -95,3 +95,35 @@ def test_current_worker_is_not_restarted(monkeypatch):
     view = SimpleNamespace(app=SimpleNamespace(archive=SimpleNamespace(export_choices=lambda: records)))
     assert CertificateAnalyzerApp._export_choices(view) == records
     restart.assert_not_called()
+
+
+@pytest.mark.skipif(os.environ.get("CERTIFICATE_ANALYZER_GUI_TEST") != "1", reason="Requires desktop Tk")
+def test_full_backup_dialog_uses_complete_backup_and_validates_password(monkeypatch):
+    import tkinter as tk
+    from certificate_analyzer.presentation.gui.views import archive_view
+
+    root = tk.Tk()
+    root.withdraw()
+    archive = Mock()
+    archive.backup.return_value = {"path": "full.cat"}
+    def submit(action, finished):
+        finished(action())
+        return True
+    handler = SimpleNamespace(root=root, app=SimpleNamespace(archive=archive), _submit=submit)
+    dialog = archive_view.ArchiveDialog(handler, backup=True)
+    dialog.withdraw()
+    error = Mock()
+    monkeypatch.setattr(archive_view.messagebox, "showerror", error)
+    monkeypatch.setattr(archive_view.messagebox, "showinfo", Mock())
+    monkeypatch.setattr(archive_view.filedialog, "asksaveasfilename", lambda **kwargs: "full.cat")
+    try:
+        dialog.password.set("long-secret-password")
+        dialog.submit()
+        error.assert_called_once()
+        archive.backup.assert_not_called()
+        dialog.confirm.set("long-secret-password")
+        dialog.submit()
+        archive.backup.assert_called_once_with("full.cat", "long-secret-password")
+        archive.export.assert_not_called()
+    finally:
+        root.destroy()

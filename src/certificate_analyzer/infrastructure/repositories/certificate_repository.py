@@ -139,6 +139,13 @@ class CertificateRepository:
     def save(self, certificate):
         return self.save_many([certificate])
 
+    def update_comment(self, fingerprint, comment):
+        with self.sessions.begin() as session:
+            model = session.get(Model, fingerprint)
+            if model is None:
+                raise ValueError("Сертификат не найден")
+            model.comment = comment
+
     def cached_sources(self, paths):
         with self.sessions() as session:
             rows = session.execute(
@@ -271,6 +278,7 @@ class CertificateRepository:
         return Certificate(
             fingerprint_sha256=model.fingerprint_sha256,
             subject=model.subject,
+            comment=model.comment or "",
             issuer=model.issuer,
             valid_from=utc(model.valid_from),
             valid_to=utc(model.valid_to),

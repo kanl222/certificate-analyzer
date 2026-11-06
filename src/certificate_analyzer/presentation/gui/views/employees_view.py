@@ -18,8 +18,7 @@ EMPLOYEE_COLUMNS = {
     "office": ("Кабинет", 75),
     "phones": ("Телефоны", 130),
     "email": ("Email", 130),
-    "inn": ("ИНН", 110),
-    "snils": ("СНИЛС", 110),
+    "comment": ("Комментарий", 220),
 }
 
 EMPLOYEE_PAGE_SIZE = 100
@@ -45,13 +44,13 @@ class EmployeeDialog(tk.Toplevel):
         self.employee = employee
         self.on_save = on_save
         self.title("Редактировать сотрудника" if employee else "Новый сотрудник")
-        self.geometry("480x410")
+        self.geometry("480x450")
         self.resizable(False, False)
         self.transient(parent.winfo_toplevel())
         self.grab_set()
 
         self._init_ui()
-        fit_dialog(self, width=480, height=410)
+        fit_dialog(self, width=480, height=450)
 
     def _init_ui(self) -> None:
         """Создает форму ввода реквизитов сотрудника."""
@@ -68,6 +67,7 @@ class EmployeeDialog(tk.Toplevel):
             ("Email:", "email", (self.employee.email if self.employee and self.employee.email else "")),
             ("ИНН:", "inn", (self.employee.inn if self.employee and self.employee.inn else "")),
             ("СНИЛС:", "snils", (self.employee.snils if self.employee and self.employee.snils else "")),
+            ("Комментарий:", "comment", self.employee.comment if self.employee else ""),
         ]
 
         self.entries: dict[str, tk.StringVar] = {}
@@ -118,6 +118,7 @@ class EmployeeDialog(tk.Toplevel):
         emp_id = self.employee.id if self.employee else None
         saved_emp = Employee(
             id=emp_id,
+            comment=self.entries["comment"].get().strip(),
             full_name=full_name,
             position=self.entries["position"].get().strip() or None,
             department=self.entries["department"].get().strip() or None,
@@ -351,8 +352,7 @@ class EmployeesView(ttk.Frame):
                     emp.office or "—",
                     phones_str,
                     emp.email or "—",
-                    emp.inn or "—",
-                    emp.snils or "—",
+                    emp.comment or "—",
                 ),
             )
 
@@ -371,6 +371,9 @@ class EmployeesView(ttk.Frame):
                 "Сотрудников пока нет\nДобавьте первого сотрудника"
             )
 
+        self.page_label.config(text=f"{self.offset + 1 if self.employees else 0}–{self.offset + len(self.employees)} из {total}")
+        self.previous_button.configure(state="normal" if self.offset else "disabled")
+        self.next_button.configure(state="normal" if self.offset + len(self.employees) < total else "disabled")
         summary = f"Всего сотрудников: {total}"
         self.stats_label.config(text=summary)
         self.on_message(summary)

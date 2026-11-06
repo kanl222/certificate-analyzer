@@ -34,21 +34,29 @@ def default_desktop_backend():
     return LoggingNotificationBackend()
 
 
-def notification_backend():
+def notification_backend(notification_urls=(), rocketchat_webhook_url=""):
     """Создает составной бэкенд по умолчанию (десктопные уведомления + API заглушка)."""
     desktop = default_desktop_backend()
     api_stub = ApiNotificationBackend(stub_mode=True)
-    return CompositeNotificationBackend([desktop, api_stub])
+    backends = [desktop, api_stub]
+    urls = list(notification_urls)
+    if rocketchat_webhook_url:
+        from certificate_analyzer.infrastructure.notifications.rocketchat import rocketchat_apprise_url
+        urls.append(rocketchat_apprise_url(rocketchat_webhook_url))
+    if urls:
+        from certificate_analyzer.infrastructure.notifications.apprise_backend import AppriseNotificationBackend
+        backends.append(AppriseNotificationBackend(urls))
+    return CompositeNotificationBackend(backends)
 
 
 class PushNotificationManager:
     """Менеджер push-уведомлений с поддержкой многоканальной рассылки (Desktop, API stub) и истории."""
 
-    def __init__(self, backend=None, history_store=None):
+    def __init__(self, backend=None, history_store=None, notification_urls=(), rocketchat_webhook_url=""):
         if backend is not None:
             self.backend = backend
         else:
-            self.backend = notification_backend()
+            self.backend = notification_backend(notification_urls, rocketchat_webhook_url)
 
         self.history_store = history_store
         self.notification_interval = 3600

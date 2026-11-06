@@ -36,3 +36,4 @@ class Employee:
     snils: str | None = None
     birth_date: date | None = None
     is_management: bool = False
+    comment: str = ""

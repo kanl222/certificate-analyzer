@@ -37,9 +37,13 @@ def test_active_mchd_parsed(test_mchd_dir: Path):
     assert "STAT_001" in doc.authority_codes
 
 
-def test_expiring_soon_mchd(test_mchd_dir: Path):
+def test_expiring_soon_mchd(test_mchd_dir: Path, monkeypatch):
     """Проверяет определение статуса EXPIRING_SOON для истекающей доверенности."""
     parser = MchdXmlParser()
+    from datetime import timedelta
+    from certificate_analyzer.domain.services.mchd_status import mchd_status
+    monkeypatch.setattr("certificate_analyzer.infrastructure.mchd.xml_parser.mchd_status",
+                        lambda valid_to, **kwargs: mchd_status(valid_to, now=valid_to - timedelta(days=30), **kwargs))
     doc = parser.parse(test_mchd_dir / "mchd_expiring_soon.xml")
 
     assert doc.status == MchdStatus.EXPIRING_SOON

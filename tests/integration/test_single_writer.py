@@ -1,8 +1,6 @@
 """Real separate-process IPC, daemon-owned database and recovery."""
 
-from dataclasses import asdict
 from datetime import date
-import json
 import os
 import subprocess
 import sys
@@ -26,7 +24,7 @@ def writer(tmp_path):
                         export_folder=str(tmp_path / "reports"), check_interval=3600)
     environment = os.environ.copy()
     environment["PYTHONIOENCODING"] = "utf-8"
-    environment["CERTIFICATE_ANALYZER_DAEMON_SETTINGS"] = json.dumps(asdict(settings))
+    environment["CERTIFICATE_ANALYZER_DAEMON_SETTINGS"] = settings.model_dump_json()
     output = tempfile.TemporaryFile()
     process = subprocess.Popen([sys.executable, "-m", "certificate_analyzer", "worker"],
                                env=environment, stdout=output, stderr=output)
@@ -105,6 +103,9 @@ def test_archive_export_restore_in_real_daemon(writer, certificate_file, tmp_pat
         assert gui.certificates.import_files([certificate_file()]).imported == 1
         archive = tmp_path / "through-ipc.cat"
         assert gui.archive.export(archive, "long-secret-password")["path"] == str(archive)
+        backup = tmp_path / "full-through-ipc.cat"
+        assert gui.archive.backup(backup, "long-secret-password")["path"] == str(backup)
+        assert backup.is_file()
         preview = gui.archive.inspect(archive, "long-secret-password")
         gui.archive.restore(archive, "long-secret-password", "replace", {}, preview["digest"])
         assert gui.certificates.statistics()["total"] == 1
@@ -120,6 +121,55 @@ def test_unavailable_does_not_fall_back_to_gui_write(writer):
             gui.employees.save_employee(Employee(full_name="Не записывать"))
         with pytest.raises(WriterUnavailable, match="Фоновый процесс недоступен"):
             gui.employees.list_employees()
+
+
+def test_duplicate_operation_executes_once_and_preserves_result(writer):
+    from concurrent.futures import ThreadPoolExecutor
+    from uuid import uuid4
+
+    _, _, client = writer
+    identifier = str(uuid4())
+    def create():
+        return client.call("employees", "save_employee", (Employee(full_name="Однократная запись"),), operation_id=identifier)[0]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first, second = list(pool.map(lambda _: create(), range(2)))
+    assert first.id == second.id
+    assert client.call("employees", "count_employees")[0] == 1
+    assert client.operation_status(identifier)["state"] == "completed"
+    with pytest.raises(WriteCommandError, match="другими параметрами"):
+        client.call("employees", "save_employee", (Employee(full_name="Другие данные"),), operation_id=identifier)
+
+
+def test_lost_response_is_recovered_without_repeating_write(writer, monkeypatch):
+    from certificate_analyzer.runtime import ipc
+
+    _, _, client = writer
+    original = ipc.receive
+    received = []
+    def lose_first_reply(stream):
+        response = original(stream)
+        received.append(response)
+        if len(received) == 1:
+            raise OSError("simulated disconnect after commit")
+        return response
+    monkeypatch.setattr(ipc, "receive", lose_first_reply)
+    employee, _ = client.call("employees", "save_employee", (Employee(full_name="Потерянный ответ"),))
+    assert employee.id is not None
+    assert len(received) == 2
+    assert client.call("employees", "count_employees")[0] == 1
+
+
+def test_failed_operation_returns_same_error_on_retry(writer):
+    from uuid import uuid4
+
+    _, _, client = writer
+    identifier = str(uuid4())
+    for _ in range(2):
+        with pytest.raises(WriteCommandError):
+            client.call("certificate_requests", "create_request", kwargs={"employee_id": -1}, operation_id=identifier)
+    status = client.operation_status(identifier)
+    assert status["state"] == "completed"
+    assert status["response"]["ok"] is False
 
 
 def test_cli_stop_waits_for_daemon_exit(writer):

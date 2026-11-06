@@ -1,7 +1,5 @@
 """Проверки публикации порта и восстановления единственного writer после аварии."""
 
-from dataclasses import asdict
-import json
 import os
 import subprocess
 import sys
@@ -61,7 +59,7 @@ def test_fallback_writer_recovers_after_process_crash_without_data_loss(tmp_path
                         mchd_folder=str(tmp_path / "mchd"),
                         export_folder=str(tmp_path / "reports"), check_interval=3600)
     environment = os.environ.copy()
-    environment["CERTIFICATE_ANALYZER_DAEMON_SETTINGS"] = json.dumps(asdict(settings))
+    environment["CERTIFICATE_ANALYZER_DAEMON_SETTINGS"] = settings.model_dump_json()
     program = """
 import errno, json, os
 from certificate_analyzer.infrastructure.config.settings import Settings

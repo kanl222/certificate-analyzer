@@ -1,7 +1,5 @@
 """User-session daemon and login startup, without SCM/admin privileges."""
 
-from dataclasses import asdict
-import json
 import logging
 import os
 from pathlib import Path
@@ -36,7 +34,7 @@ def ensure_writer(settings, timeout=15):
         pass
     environment = os.environ.copy()
     logger.info("Запрошен запуск фонового процесса")
-    environment["CERTIFICATE_ANALYZER_DAEMON_SETTINGS"] = json.dumps(asdict(settings))
+    environment["CERTIFICATE_ANALYZER_DAEMON_SETTINGS"] = settings.model_dump_json()
     options = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {"start_new_session": True}
     process = subprocess.Popen(executable_command() + ["worker"], env=environment,
                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,

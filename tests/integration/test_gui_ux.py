@@ -180,7 +180,7 @@ def test_certificate_sort_heading_shows_direction(application, tk_root):
     view = CertificatesView(tk_root, application=application)
     view.pack()
 
-    view.sort_by("valid_to")
+    assert view.sort == "valid_to"
     assert view.tree.heading("valid_to", "text").endswith("↑")
     view.sort_by("valid_to")
     assert view.tree.heading("valid_to", "text").endswith("↓")

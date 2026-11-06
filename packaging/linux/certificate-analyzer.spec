@@ -1,17 +1,18 @@
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 
 project_root = Path(SPECPATH).parents[1]
 entry_point = project_root / "src" / "certificate_analyzer" / "__main__.py"
+apprise_datas, apprise_binaries, apprise_imports = collect_all("apprise")
 
 analysis = Analysis(
     [str(entry_point)],
     pathex=[str(project_root / "src")],
-    binaries=[],
-    datas=[(str(project_root / "src/certificate_analyzer/assets"), "certificate_analyzer/assets")],
-    hiddenimports=collect_submodules("certificate_analyzer"),
+    binaries=apprise_binaries,
+    datas=[(str(project_root / "src/certificate_analyzer/assets"), "certificate_analyzer/assets")] + apprise_datas,
+    hiddenimports=collect_submodules("certificate_analyzer") + apprise_imports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

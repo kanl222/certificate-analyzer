@@ -70,6 +70,16 @@ class ArchiveService:
                               categories=categories, record_ids=record_ids, _writer_owned=True)
         return {"path": str(path)}
 
+    def backup(self, destination, password):
+        """Create a complete recovery archive, including audit and notification history."""
+        self._writable()
+        path = export_archive(
+            self.app.database.path, self.app.certificates.storage.folder,
+            Path(destination), password,
+            notification_history=NotificationHistoryStore().load(), _writer_owned=True,
+        )
+        return {"path": str(path)}
+
     def _restore(self, archive, password, parent):
         target = parent / uuid4().hex
         import_archive(Path(archive), target, password)

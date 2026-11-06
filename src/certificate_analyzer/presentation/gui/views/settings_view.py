@@ -1,7 +1,6 @@
 """Представление окна настроек приложения."""
 
 import tkinter as tk
-from dataclasses import replace
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable
@@ -72,6 +71,10 @@ class SettingsDialog(tk.Toplevel):
             "Отчёты": [
                 ("export_folder", "Папка отчётов", self.app.settings.export_folder, "directory"),
             ],
+            "Уведомления": [
+                ("rocketchat_webhook_url", "Rocket.Chat Incoming Webhook URL", self.app.settings.rocketchat_webhook_url, "secret"),
+                ("notification_urls", "Адреса каналов Apprise (через пробел)", " ".join(self.app.settings.notification_urls), None),
+            ],
         }
         for title, values in groups.items():
             tab_shell = ttk.Frame(self.notebook, padding=16, style="Status.TFrame")
@@ -98,6 +101,9 @@ class SettingsDialog(tk.Toplevel):
                 self._add_hint(tab, len(values) * 2,
                     "Порог дней общий с вкладкой «Сертификаты».\nУправление фоновым процессом и автозапуском доступно в меню «Служба».")
             scroll.bind_mousewheel()
+            if title == "Уведомления":
+                self._add_hint(tab, len(values) * 2,
+                    "Rocket.Chat: вставьте URL https://сервер/hooks/id/token из раздела Integrations → Incoming.\nКанал выбирается в Rocket.Chat. Пустое поле отключает отправку в Rocket.Chat.\nОстальные каналы — URL Apprise через пробел. Адреса сохраняются в файле настроек.")
 
         note = ttk.Label(frame,
                   text="После сохранения перезапустите приложение и фоновый процесс. Существующие файлы автоматически не перемещаются.",
@@ -119,8 +125,8 @@ class SettingsDialog(tk.Toplevel):
         if browse_kind == "days":
             ttk.Spinbox(tab, from_=0, to=3650, increment=1, textvariable=variable, width=10, style="Settings.TSpinbox").grid(row=row * 2 + 1, column=0, sticky="w")
         else:
-            ttk.Entry(tab, textvariable=variable, width=32, style="Settings.TEntry").grid(row=row * 2 + 1, column=0, sticky="ew")
-        if browse_kind and browse_kind != "days":
+            ttk.Entry(tab, textvariable=variable, width=32, style="Settings.TEntry", show="•" if browse_kind == "secret" else "").grid(row=row * 2 + 1, column=0, sticky="ew")
+        if browse_kind and browse_kind not in ("days", "secret"):
             ttk.Button(tab, text="Обзор…", command=lambda: self._browse(variable, browse_kind)).grid(row=row * 2 + 1, column=1, padx=(10, 0))
 
     def _browse(self, variable, kind):
@@ -151,11 +157,11 @@ class SettingsDialog(tk.Toplevel):
                 raise ValueError("Порог истечения должен быть целым числом дней") from None
             if warning_days < 0:
                 raise ValueError("Порог истечения не может быть отрицательным")
-            settings = replace(
-                self.app.settings,
+            settings = self.app.settings.updated(
                 **{
                     k: int(v.get())
                     if k in ("warning_days", "check_interval")
+                    else v.get().split() if k == "notification_urls"
                     else (v.get().strip() or None) if k == "phonebook_path"
                     else v.get()
                     for k, v in self.fields.items()

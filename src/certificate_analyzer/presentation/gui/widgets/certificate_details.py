@@ -81,6 +81,26 @@ class CertificateDetails(ttk.LabelFrame):
         body.bind("<Configure>", self._resize_values, add="+")
         self.scroll_panel.bind_mousewheel()
 
+    def set_comment(self, text, on_save):
+        if not hasattr(self, "comment_text"):
+            box = ttk.Frame(self)
+            box.pack(fill="x", pady=(10, 0))
+            ttk.Label(box, text="Комментарий:").pack(anchor="w")
+            self.comment_text = tk.Text(box, height=3, wrap="word", undo=True)
+            self.comment_text.pack(fill="x", pady=4)
+            self.comment_button = ttk.Button(box, text="Сохранить комментарий")
+            self.comment_button.pack(anchor="e")
+        self.comment_text.configure(state="normal")
+        self.comment_text.delete("1.0", "end")
+        self.comment_text.insert("1.0", text)
+        def save():
+            from tkinter import messagebox
+            try:
+                on_save(self.comment_text.get("1.0", "end-1c"))
+            except Exception as exc:
+                messagebox.showerror("Не удалось сохранить комментарий", str(exc), parent=self)
+        self.comment_button.configure(command=save, state="normal")
+
     def select_field(self, key):
         if self.selected_field is not None:
             for widget in self.row_widgets[self.selected_field]:
@@ -122,6 +142,10 @@ class CertificateDetails(ttk.LabelFrame):
             widget.config(text=value)
 
     def clear(self):
+        if hasattr(self, "comment_text"):
+            self.comment_text.delete("1.0", "end")
+            self.comment_text.configure(state="disabled")
+            self.comment_button.configure(state="disabled")
         self.select_field(None)
         for widget in self.fields.values():
             widget.config(text="—")

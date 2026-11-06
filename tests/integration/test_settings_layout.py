@@ -76,3 +76,32 @@ def test_settings_surface_and_scrollbar_follow_content(settings_runtime, scale):
     finally:
         dialog.destroy()
         root.destroy()
+
+
+def test_notification_channels_are_validated_and_saved(settings_runtime, tmp_path, monkeypatch):
+    from certificate_analyzer.infrastructure.config.config_loader import load_settings
+    from certificate_analyzer.presentation.gui.views import settings_view
+
+    application = SimpleNamespace(
+        settings=Settings(folders={}, notification_urls=[]),
+        certificates=SimpleNamespace(storage=SimpleNamespace(folder=tmp_path / "certificates")),
+        database=SimpleNamespace(path=tmp_path / "records.db"),
+    )
+    path = tmp_path / "settings.json"
+    errors = []
+    monkeypatch.setattr(settings_view.messagebox, "showerror", lambda *args, **kwargs: errors.append(args))
+    dialog = SettingsDialog(settings_runtime, application, config_path=path)
+    try:
+        dialog.fields["notification_urls"].set("invalid://bad")
+        dialog.save()
+        assert errors
+        assert not path.exists()
+        assert dialog.winfo_exists()
+        dialog.fields["notification_urls"].set("json://localhost:9999 json://localhost:9998")
+        dialog.fields["rocketchat_webhook_url"].set("https://chat.example.org/hooks/integration123/token456")
+        dialog.save()
+        assert load_settings(path).notification_urls == ["json://localhost:9999", "json://localhost:9998"]
+        assert load_settings(path).rocketchat_webhook_url == "https://chat.example.org/hooks/integration123/token456"
+    finally:
+        if dialog.winfo_exists():
+            dialog.destroy()

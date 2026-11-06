@@ -29,6 +29,7 @@ class Certificate:
     has_private_key_link: bool = False
     owner_name: str | None = None
     employee: Optional["Employee"] = None
+    comment: str = ""
     source_path: str = ""
     email: str = ""
     original_name: str = ""

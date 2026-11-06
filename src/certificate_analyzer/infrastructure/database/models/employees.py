@@ -29,6 +29,8 @@ class EmployeeModel(Base):
     birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     is_management: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    comment: Mapped[str] = mapped_column(String, default="", server_default="")
+
     certificates: Mapped[list["CertificateModel"]] = relationship(
         back_populates="employee"
     )

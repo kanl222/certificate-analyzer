@@ -37,6 +37,7 @@ class TaskRunner:
         )
         self.future: Future[Any] | None = None
         self.closing = False
+        self.last_operation_id = None
 
     def submit(
         self,
@@ -106,6 +107,8 @@ class TaskRunner:
                 if post_refresh:
                     post_refresh()
         except Exception as exc:
+            if getattr(exc, "operation_id", None):
+                self.last_operation_id = exc.operation_id
             logging.getLogger(__name__).exception("Ошибка фоновой операции GUI")
             if not self.closing:
                 self.on_message("Операция не завершена")

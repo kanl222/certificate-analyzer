@@ -1,6 +1,5 @@
 """Точка входа командной строки (CLI) приложения Certificate Analyzer."""
 
-from dataclasses import replace
 import json
 import os
 import logging
@@ -48,9 +47,9 @@ def main(argv=None) -> int:
             from certificate_analyzer.infrastructure.config.settings import Settings
             settings = Settings(**json.loads(inherited))
         if args.database:
-            settings = replace(settings, database_path=args.database)
+            settings = settings.updated(database_path=args.database)
         if args.storage_folder:
-            settings = replace(settings, storage_folder=args.storage_folder)
+            settings = settings.updated(storage_folder=args.storage_folder)
 
         from certificate_analyzer.runtime.user_daemon import ensure_writer, run_writer
         if args.command == "worker" and args.stop:

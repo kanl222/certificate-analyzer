@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 class CertificateModel(Base):
     __tablename__ = "certificates"
     fingerprint_sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    comment: Mapped[str] = mapped_column(Text, default="", server_default="")
     subject: Mapped[str] = mapped_column(String(255), index=True)
     issuer: Mapped[str] = mapped_column(String(255))
     valid_from: Mapped[datetime] = mapped_column(DateTime)

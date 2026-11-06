@@ -252,6 +252,9 @@ class CertificateService:
         """
         return self.repository.statistics(query)
 
+    def update_comment(self, fingerprint: str, comment: str):
+        self.repository.update_comment(fingerprint, comment)
+
     def get(self, fingerprint: str) -> Certificate:
         """Получает сертификат по его уникальному SHA-256 отпечатку.
 

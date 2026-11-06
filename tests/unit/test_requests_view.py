@@ -2,6 +2,7 @@
 
 import os
 import pytest
+from certificate_analyzer.presentation.gui.widgets.employee_autocomplete import EmployeeAutocomplete
 
 from certificate_analyzer.domain.models.employee import Employee
 from certificate_analyzer.presentation.gui.views.requests_view import (
@@ -155,9 +156,9 @@ def test_create_employee_from_request(application):
         button(dialog, "Создать сотрудника…").invoke()
         assert not errors
         assert dialog.grab_current() == dialog
-        combo = next(child for child in descendants(dialog) if isinstance(child, ttk.Combobox))
+        combo = next(child for child in descendants(dialog) if isinstance(child, EmployeeAutocomplete))
         assert combo.get() == "Новый сотрудник"
-        assert "Новый сотрудник" in combo.cget("values")
+        assert any(e.full_name == "Новый сотрудник" for e in combo.employees)
         button(dialog, "Создать заявку").invoke()
 
         employee = application.employees.find_by_name("Новый сотрудник")
@@ -205,7 +206,7 @@ def test_request_keeps_selected_employee_id(application, monkeypatch, use_picker
         view = module.RequestsView(root, application=application)
         view.show_create_dialog_for(first.full_name, first.department, employee_id=first.id)
         dialog = next(child for child in view.winfo_children() if isinstance(child, tk.Toplevel))
-        combo = next(child for child in descendants(dialog) if isinstance(child, ttk.Combobox))
+        combo = next(child for child in descendants(dialog) if isinstance(child, EmployeeAutocomplete))
         if use_picker:
             combo.set("Неизвестный сотрудник")
             button(dialog, "Создать заявку").invoke()

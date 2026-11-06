@@ -1,6 +1,6 @@
 [project]
 name = "certificate-analyzer"
-version = "0.2.5.1"
+version = "0.2.6"
 description = "Анализатор сертификатов X.509 и машиночитаемых доверенностей"
 readme = "README.md"
 authors = [
@@ -16,6 +16,9 @@ dependencies = [
     "sqlalchemy>=2.0.54",
     "concurrent-log-handler>=0.9.28",
     "pywin32>=306; sys_platform == 'win32'",
+    "platformdirs>=4,<5",
+    "pydantic-settings>=2,<3",
+    "apprise>=1.9,<2",
 ]
 
 [project.optional-dependencies]

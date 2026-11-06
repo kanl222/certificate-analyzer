@@ -134,7 +134,9 @@ def test_import_older_archive_upgrades_before_publication(application, certifica
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     from certificate_analyzer.infrastructure.transfer_archive import HEADER, _key, export_archive, import_archive
 
-    application.certificates.import_files([certificate_file()])
+    result = application.certificates.import_files([certificate_file()])
+    assert not result.errors, result.errors
+    assert result.imported == 1
     archive = export_archive(Path(application.settings.database_path), Path(application.settings.storage_folder), tmp_path / "backup.cat", "long-secret-password")
     envelope = archive.read_bytes()
     offset = len(HEADER)

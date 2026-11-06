@@ -26,9 +26,9 @@ TYPES = {cls.__name__: cls for cls in (
     Employee, MchdDocument, CertificateStatus, CertificateRequestStatus, MchdStatus,
 )}
 COMMANDS = {
-    "archive": {"export", "export_choices", "inspect", "restore"},
+    "archive": {"export", "export_choices", "inspect", "restore", "backup"},
     "certificates": {"import_files", "import_folder", "load_phonebook", "delete_records", "delete_file",
-                     "list", "statistics", "get"},
+                     "list", "statistics", "get", "update_comment"},
     "certificate_files": {"get_by_path", "list_by_fingerprint"},
     "employees": {"save_employee", "get_or_create", "delete_employee",
                   "list_employees", "count_employees", "get_employee", "find_by_name"},
@@ -37,6 +37,17 @@ COMMANDS = {
     "mchds": {"scan", "import_files", "save", "delete", "get_by_number", "list_all", "find_by_authority"},
     "audit": {"log_event", "list_events"},
     "monitoring": {"run_cycle"},
+}
+
+# Reads do not need durable receipts. Unknown/new commands are tracked by default.
+READ_COMMANDS = {
+    "archive": {"export_choices", "inspect"},
+    "certificates": {"list", "statistics", "get"},
+    "certificate_files": {"get_by_path", "list_by_fingerprint"},
+    "employees": {"list_employees", "count_employees", "get_employee", "find_by_name"},
+    "certificate_requests": {"get_request", "list_requests", "count_by_status"},
+    "mchds": {"scan", "get_by_number", "list_all", "find_by_authority"},
+    "audit": {"list_events"},
 }
 
 

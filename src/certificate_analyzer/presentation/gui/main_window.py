@@ -2,7 +2,7 @@
 
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import messagebox, simpledialog, ttk
 from typing import Any, Callable
 
 from certificate_analyzer.bootstrap import create_application
@@ -401,6 +401,54 @@ class CertificateAnalyzerApp:
             if not compatible(records):
                 raise ValueError("Фоновый процесс не предоставил данные для экспорта. Обновите приложение и фоновый процесс.")
         return records
+
+    def backup_archive(self):
+        from certificate_analyzer.presentation.gui.views.archive_view import ArchiveDialog
+        ArchiveDialog(self, backup=True)
+
+    def show_operation_result(self):
+        from certificate_analyzer.runtime.ipc import WriteClient
+        from certificate_analyzer.runtime.operations import OperationJournal
+        identifier = simpledialog.askstring(
+            "Результат операции", "Идентификатор операции из сообщения об обрыве связи:",
+            initialvalue=self.task_runner.last_operation_id or "", parent=self.root,
+        )
+        if not identifier:
+            return
+        identifier = identifier.strip()
+        try:
+            OperationJournal.validate(identifier)
+        except ValueError:
+            messagebox.showerror("Результат операции", "Введите корректный идентификатор операции.", parent=self.root)
+            return
+
+        def finished(status):
+            state = status["state"]
+            messages = {
+                "running": "Операция ещё выполняется. Проверьте результат позже; повторять её не нужно.",
+                "unknown": "Результат неизвестен после остановки процесса. Проверьте данные перед новой операцией.",
+                "not_found": "Операция не найдена. Она могла ещё не начаться или журнал недоступен для этого профиля. Проверьте данные перед повтором.",
+            }
+            if state == "completed":
+                response = status["response"]
+                if not response["ok"]:
+                    messagebox.showerror("Результат операции", response.get("error", "Ошибка выполнения"), parent=self.root)
+                    return
+                message = "Операция завершена. Данные будут обновлены."
+                result = response.get("result")
+                if isinstance(result, dict):
+                    for key, label in (("path", "Файл"), ("backup", "Резервная копия")):
+                        if result.get(key):
+                            message += f"\n{label}: {result[key]}"
+                errors = response.get("errors", {})
+                if errors:
+                    message += f"\nОшибок обработки: {len(errors)}.\n" + "\n".join(f"{key}: {value}" for key, value in list(errors.items())[:10])
+            else:
+                message = messages.get(state, "Результат неизвестен. Проверьте данные.")
+            messagebox.showinfo("Результат операции", message, parent=self.root)
+
+        client = WriteClient(self.app.settings.database_path)
+        self._submit(lambda: client.operation_status(identifier), finished)
 
     def import_archive(self):
         from certificate_analyzer.presentation.gui.views.archive_view import ArchiveDialog

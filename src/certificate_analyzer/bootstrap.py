@@ -114,7 +114,7 @@ def _create_remote_application(settings: Settings) -> ApplicationContainer:
         certificates=certificates,
         reports=ReportService(),
         mchds=RemoteService("mchds", client),
-        notifications=PushNotificationManager(),
+        notifications=PushNotificationManager(notification_urls=settings.notification_urls, rocketchat_webhook_url=settings.rocketchat_webhook_url),
         platform=platform,
         certificate_requests=RemoteService("certificate_requests", client),
         employees=RemoteService("employees", client),
@@ -168,7 +168,7 @@ def create_application(config_path=None, *, settings=None, read_only=False) -> A
         reports = ReportService()
         mchd_repo = MchdRepository(database.sessions)
         mchds = MchdService(repository=mchd_repo)
-        notifications = PushNotificationManager()
+        notifications = PushNotificationManager(notification_urls=settings.notification_urls, rocketchat_webhook_url=settings.rocketchat_webhook_url)
         request_repo = CertificateRequestRepository(database.sessions)
         request_service = CertificateRequestService(request_repo, employee_repo)
         monitoring_service = MonitoringService(
