@@ -103,7 +103,11 @@ trap cleanup EXIT
 
 if [ -z "$BUNDLE_DIR" ]; then
     echo "==> Установка зависимостей сборки..."
-    uv sync --python 3.11 --extra gui --group packaging
+    PYTHON_INTERPRETER="3.11"
+    if [ "$ALT_RPM" -eq 1 ] && [ -x /usr/bin/python3.11 ]; then
+        PYTHON_INTERPRETER="/usr/bin/python3.11"
+    fi
+    uv sync --python "$PYTHON_INTERPRETER" --extra gui --group packaging
 
     PYTHON_PREFIX="$(uv run --no-sync python -c 'import sys; print(sys.base_prefix)')"
     PYTHON_PREFIX="$(readlink -f "$PYTHON_PREFIX")"
