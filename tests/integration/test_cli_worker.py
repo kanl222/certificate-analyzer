@@ -41,8 +41,8 @@ def test_worker_report(certificate_file, tmp_path, application):
     class Notifier:
         calls: ClassVar[list] = []
 
-        def check_and_notify_expired(self, *args):
-            self.calls.append(args)
+        def check_and_notify_expired(self, *args, **kwargs):
+            self.calls.append(args[:3])
 
     notifier = Notifier()
     worker = MonitoringWorker(application=application, notifier=notifier)

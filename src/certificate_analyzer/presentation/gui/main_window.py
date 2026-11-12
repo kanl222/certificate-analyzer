@@ -183,10 +183,15 @@ class CertificateAnalyzerApp:
         )
         self.monitor_status = ttk.Label(
             status_bar,
-            text="Мониторинг: проверка…",
+            text="● Мониторинг: проверка…",
             style="Status.TLabel",
         )
         self.monitor_status.grid(row=0, column=2, sticky="e", padx=(12, 0))
+
+        # Глобальные горячие клавиши поиска и навигации
+        self.root.bind("<Control-f>", lambda _: self._on_hotkey_find())
+        self.root.bind("<Control-F>", lambda _: self._on_hotkey_find())
+        self.root.bind("<Escape>", lambda _: self._on_hotkey_escape())
 
         # Менеджер фоновых задач
         self.task_runner = TaskRunner(
@@ -209,13 +214,42 @@ class CertificateAnalyzerApp:
         self._schedule_monitor_status()
 
     def _schedule_monitor_status(self) -> None:
-        """Обновляет в нижней панели состояние системной службы мониторинга."""
+        """Обновляет в нижней панели состояние системной службы мониторинга с цветным бейджем."""
         if self.closing:
             return
-        self.monitor_status.config(text=monitoring_process_status(self.app.settings))
+        status_text: str = monitoring_process_status(self.app.settings)
+        is_active: bool = "активен" in status_text.lower()
+        badge: str = "● " if is_active else "○ "
+        self.monitor_status.config(text=f"{badge}{status_text}")
+        if is_active:
+            self.monitor_status.config(foreground="#1b7340")
+        else:
+            self.monitor_status.config(foreground="#8c2525")
         self.monitor_status_after = self.root.after(
             30000, self._schedule_monitor_status
         )
+
+    def _on_hotkey_find(self) -> str:
+        """Активирует поиск на текущей активной вкладке по Ctrl+F."""
+        current = self.notebook.select()
+        for tab in (self.certs_tab, self.requests_view, self.employees_view, self.mchd_view):
+            if str(tab) == current or getattr(tab, "master", None) and str(tab.master) == current:
+                if hasattr(tab, "focus_search"):
+                    tab.focus_search()
+                    return "break"
+        if hasattr(self.certs_tab, "focus_search"):
+            self.certs_tab.focus_search()
+        return "break"
+
+    def _on_hotkey_escape(self) -> str:
+        """Очищает фильтр поиска на текущей активной вкладке по Esc."""
+        current = self.notebook.select()
+        for tab in (self.certs_tab, self.requests_view, self.employees_view, self.mchd_view):
+            if str(tab) == current or getattr(tab, "master", None) and str(tab.master) == current:
+                if hasattr(tab, "clear_search"):
+                    tab.clear_search()
+                    return "break"
+        return "break" 
 
     def _on_task_activity_change(self, is_active: bool) -> None:
         """Переключает доступность кнопок импорта при запуске/завершении фоновых задач.

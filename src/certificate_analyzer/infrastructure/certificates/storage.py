@@ -1,15 +1,36 @@
-"""Managed certificate directory. The database contains metadata only."""
+"""Управляемое хранилище файлов сертификатов на диске. В базе данных хранятся только метаданные."""
+
+from __future__ import annotations
 
 import os
-import tempfile
 from pathlib import Path
+import tempfile
 
 
 class CertificateStorage:
-    def __init__(self, folder):
-        self.folder = Path(folder).expanduser().resolve()
+    """Управление хранилищем бинарных файлов сертификатов в формате DER."""
 
-    def put(self, fingerprint, der):
+    def __init__(self, folder: str | Path) -> None:
+        """Инициализирует каталог хранилища сертификатов.
+
+        Args:
+            folder: Путь к целевой папке для сохранения файлов.
+        """
+        self.folder: Path = Path(folder).expanduser().resolve()
+
+    def put(self, fingerprint: str, der: bytes) -> Path:
+        """Атомарно сохраняет сертификат в формате DER под именем <SHA256>.cer.
+
+        Args:
+            fingerprint: Отпечаток SHA-256 в верхнем регистре (64 шестнадцатеричных символа).
+            der: Бинарное содержимое сертификата в кодировке DER.
+
+        Returns:
+            Path: Путь к сохранённому файлу сертификата.
+
+        Raises:
+            ValueError: Если отпечаток некорректен или обнаружен конфликт содержимого файла.
+        """
         if len(fingerprint) != 64 or any(
             c not in "0123456789ABCDEF" for c in fingerprint
         ):
@@ -20,7 +41,7 @@ class CertificateStorage:
             if target.read_bytes() != der:
                 raise ValueError(f"Файл хранилища повреждён: {target}")
             return target
-        temporary = None
+        temporary: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(dir=self.folder, delete=False) as stream:
                 temporary = Path(stream.name)

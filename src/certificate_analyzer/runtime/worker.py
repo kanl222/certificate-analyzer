@@ -60,7 +60,7 @@ class MonitoringWorker:
 
         self._scheduler: Scheduler | None = None
 
-    def run_once(self) -> list[dict[str, Any]]:
+    def run_once(self, *, db_lock=None) -> list[dict[str, Any]]:
         """Выполняет однократную проверку сертификатов и сохранение отчета.
 
         Returns:
@@ -68,7 +68,7 @@ class MonitoringWorker:
         """
         started = time.monotonic()
         logger.info("Начало проверки сертификатов")
-        result = self._service.run_cycle()
+        result = self._service.run_cycle(db_lock=db_lock)
         self.errors = result.errors
         logger.info("Проверка завершена: записей=%s, ошибок=%s, длительность=%.2f с",
                     len(result.records), len(result.errors), time.monotonic() - started)

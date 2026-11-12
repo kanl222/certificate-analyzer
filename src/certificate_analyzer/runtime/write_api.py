@@ -1,31 +1,40 @@
-"""Local, authenticated JSON command API. No pickle or arbitrary method dispatch."""
+"""Локальный аутентифицированный JSON API команд. Без pickle и произвольного диспетчирования методов."""
 
+from __future__ import annotations
+
+from collections.abc import Callable
 import dataclasses
 from dataclasses import replace
 from datetime import date, datetime
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-from certificate_analyzer.application.services.certificate_service import ImportResult
-from certificate_analyzer.application.services.certificate_service import CertificateService
 from certificate_analyzer.application.dto.certificate_query import CertificateQuery
+from certificate_analyzer.application.services.certificate_service import CertificateService, ImportResult
 from certificate_analyzer.application.services.monitoring_service import MonitoringResult
+from certificate_analyzer.domain.enums.certificate_request_status import CertificateRequestStatus
+from certificate_analyzer.domain.enums.certificate_status import CertificateStatus
+from certificate_analyzer.domain.enums.mchd_status import MchdStatus
 from certificate_analyzer.domain.models.audit_event import AuditEvent
 from certificate_analyzer.domain.models.certificate import Certificate
 from certificate_analyzer.domain.models.certificate_file import CertificateFile
 from certificate_analyzer.domain.models.certificate_request import CertificateRequest
 from certificate_analyzer.domain.models.employee import Employee
 from certificate_analyzer.domain.models.mchd import MchdDocument
-from certificate_analyzer.domain.enums.certificate_status import CertificateStatus
-from certificate_analyzer.domain.enums.certificate_request_status import CertificateRequestStatus
-from certificate_analyzer.domain.enums.mchd_status import MchdStatus
 
-TYPES = {cls.__name__: cls for cls in (
+if TYPE_CHECKING:
+    from certificate_analyzer.infrastructure.certificates.storage import CertificateStorage
+    from certificate_analyzer.infrastructure.platform.base import PlatformFileManager
+    from certificate_analyzer.runtime.ipc import WriteClient
+
+TYPES: dict[str, type[Any]] = {cls.__name__: cls for cls in (
     ImportResult, MonitoringResult, AuditEvent, Certificate, CertificateFile, CertificateRequest,
     CertificateQuery,
     Employee, MchdDocument, CertificateStatus, CertificateRequestStatus, MchdStatus,
 )}
-COMMANDS = {
+
+COMMANDS: dict[str, set[str]] = {
     "archive": {"export", "export_choices", "inspect", "restore", "backup"},
     "certificates": {"import_files", "import_folder", "load_phonebook", "delete_records", "delete_file",
                      "list", "statistics", "get", "update_comment"},
@@ -39,8 +48,8 @@ COMMANDS = {
     "monitoring": {"run_cycle"},
 }
 
-# Reads do not need durable receipts. Unknown/new commands are tracked by default.
-READ_COMMANDS = {
+# Команды чтения не требуют формирования квитанций в журнале. Новые команды отслеживаются по умолчанию.
+READ_COMMANDS: dict[str, set[str]] = {
     "archive": {"export_choices", "inspect"},
     "certificates": {"list", "statistics", "get"},
     "certificate_files": {"get_by_path", "list_by_fingerprint"},
@@ -51,7 +60,8 @@ READ_COMMANDS = {
 }
 
 
-def encode(value):
+def encode(value: Any) -> Any:
+    """Сериализует объекты домена и стандартные типы в JSON-совместимый формат."""
     if isinstance(value, Enum):
         return {"$type": type(value).__name__, "value": value.value}
     if dataclasses.is_dataclass(value):
@@ -59,7 +69,7 @@ def encode(value):
             f.name: encode(getattr(value, f.name)) for f in dataclasses.fields(value)
         }}
     if isinstance(value, (datetime, date, Path)):
-        kind = "datetime" if isinstance(value, datetime) else "date" if isinstance(value, date) else "path"
+        kind: str = "datetime" if isinstance(value, datetime) else "date" if isinstance(value, date) else "path"
         return {"$type": kind, "value": str(value)}
     if isinstance(value, tuple):
         return {"$type": "tuple", "value": [encode(v) for v in value]}
@@ -70,35 +80,44 @@ def encode(value):
     return value
 
 
-def decode(value):
+def decode(value: Any) -> Any:
+    """Десериализует JSON-структуру в доменные объекты приложения."""
     if isinstance(value, list):
         return [decode(v) for v in value]
     if not isinstance(value, dict):
         return value
-    kind = value.get("$type")
+    kind: str | None = value.get("$type")
     if not kind:
         return {k: decode(v) for k, v in value.items()}
     if kind in ("datetime", "date", "path", "tuple"):
-        return {"datetime": datetime.fromisoformat, "date": date.fromisoformat,
-                "path": Path, "tuple": lambda v: tuple(decode(v))}[kind](value["value"])
-    cls = TYPES[kind]
+        parsers: dict[str, Callable[[Any], Any]] = {
+            "datetime": datetime.fromisoformat,
+            "date": date.fromisoformat,
+            "path": Path,
+            "tuple": lambda v: tuple(decode(v)),
+        }
+        return parsers[kind](value["value"])
+    cls: type[Any] = TYPES[kind]
     if issubclass(cls, Enum):
         return cls(value["value"])
     return cls(**decode(value["fields"]))
 
 
 class RemoteService:
-    """Expose only explicitly allowed service methods through the daemon."""
+    """Предоставляет доступ только к разрешённым методам сервиса через IPC-демон."""
 
-    def __init__(self, name, client):
-        self._name, self._client = name, client
+    def __init__(self, name: str, client: WriteClient) -> None:
+        self._name: str = name
+        self._client: WriteClient = client
         self.errors: dict[str, str] = {}
 
-    def __getattr__(self, method):
+    def __getattr__(self, method: str) -> Callable[..., Any]:
         if method not in COMMANDS[self._name]:
             raise AttributeError(method)
 
-        def execute(*args, **kwargs):
+        def execute(*args: Any, **kwargs: Any) -> Any:
+            result: Any
+            errors: dict[str, str]
             result, errors = self._client.call(self._name, method, args, kwargs)
             self.errors = errors
             return result
@@ -106,26 +125,34 @@ class RemoteService:
 
 
 class RemoteCertificateService(RemoteService):
-    """Read metadata through IPC; open files in the interactive process."""
+    """Чтение метаданных через IPC; работа с файлами в интерактивном процессе."""
 
     _resolve_file_path = CertificateService._resolve_file_path
     open_file = CertificateService.open_file
     reveal_file = CertificateService.reveal_file
 
-    def __init__(self, client, storage, platform, audit, file_repository):
+    def __init__(
+        self,
+        client: WriteClient,
+        storage: CertificateStorage,
+        platform: PlatformFileManager,
+        audit: RemoteService,
+        file_repository: RemoteService,
+    ) -> None:
         super().__init__("certificates", client)
-        self.storage = storage
-        self.platform = platform
-        self.audit = audit
-        self.file_repository = file_repository
+        self.storage: CertificateStorage = storage
+        self.platform: PlatformFileManager = platform
+        self.audit: RemoteService = audit
+        self.file_repository: RemoteService = file_repository
 
     def list(self, query: CertificateQuery | None = None) -> list[Certificate]:
+        """Постранично запрашивает список сертификатов через IPC."""
         if query is None or query.limit is not None:
             return super().__getattr__("list")(query)
-        records = []
-        offset = query.offset
+        records: list[Certificate] = []
+        offset: int = query.offset
         while True:
-            batch = super().__getattr__("list")(replace(query, limit=100, offset=offset))
+            batch: list[Certificate] = super().__getattr__("list")(replace(query, limit=100, offset=offset))
             records.extend(batch)
             if len(batch) < 100:
                 return records

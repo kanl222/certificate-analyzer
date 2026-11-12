@@ -4,7 +4,6 @@ import threading
 import time
 from datetime import datetime
 
-from certificate_analyzer.domain.enums.notification_type import NotificationType
 from certificate_analyzer.infrastructure.notifications.api_notifier import (
     ApiNotificationBackend,
 )
@@ -153,21 +152,36 @@ class PushNotificationManager:
 
         return True
 
-    def check_and_notify_expired(self, expired_count: int, warning_count: int, total_count: int) -> bool:
-        """Send expired/expiring messages independently with separate rate limits."""
-        now = time.monotonic()
-        sent_any = False
-        for category, count, title, label, kind in (
-            ("expired", expired_count, "Срок действия сертификатов истёк", "Просрочено", NotificationType.ERROR.value),
-            ("expiring", warning_count, "Срок действия сертификатов скоро истечёт", "Истекает", NotificationType.WARNING.value),
-        ):
-            if count <= 0 or now - self.last_notification_time.get(category, float("-inf")) < self.notification_interval:
+    def check_and_notify_expired(
+        self,
+        expired_count: int,
+        warning_count: int,
+        total_count: int,
+        host_info: str | None = None,
+    ) -> bool:
+        """Отправляет уведомления об истекших/истекающих сертификатах с независимыми интервалами."""
+        from certificate_analyzer.infrastructure.notifications.message_builder import NotificationMessageBuilder
+
+        now: float = time.monotonic()
+        sent_any: bool = False
+        messages = []
+        if expired_count > 0:
+            messages.append(("expired", NotificationMessageBuilder.expired_certificates(expired_count, total_count, host_info)))
+        if warning_count > 0:
+            messages.append(("expiring", NotificationMessageBuilder.expiring_certificates(warning_count, total_count, host_info)))
+
+        for category, msg in messages:
+            if now - self.last_notification_time.get(category, float("-inf")) < self.notification_interval:
                 continue
             try:
-                sent = self.send_notification(
-                    title=title, message=f"{label}: {count}. Всего сертификатов: {total_count}.",
-                    notification_type=kind, expired_count=expired_count,
-                    warning_count=warning_count, total_count=total_count,
+                sent: bool = self.send_notification(
+                    title=msg.title,
+                    message=msg.message,
+                    notification_type=msg.notification_type,
+                    expired_count=expired_count,
+                    warning_count=warning_count,
+                    total_count=total_count,
+                    host_info=host_info,
                 )
             except Exception:
                 logging.getLogger(__name__).exception("Не удалось отправить уведомление категории %s", category)

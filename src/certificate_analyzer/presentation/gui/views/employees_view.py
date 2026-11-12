@@ -275,14 +275,40 @@ class EmployeesView(ttk.Frame):
         self.context_menu.add_command(label="Редактировать", command=self.edit_selected)
         self.context_menu.add_command(label="Создать заявку на сертификат", command=self.create_request_for_selected)
         self.context_menu.add_separator()
+        self.context_menu.add_command(label="Скопировать ФИО", command=self._copy_selected_name)
+        self.context_menu.add_command(label="Скопировать должность", command=self._copy_selected_position)
+        self.context_menu.add_separator()
         self.context_menu.add_command(label="Удалить сотрудника", command=self.delete_selected)
+
+    def _copy_selected_name(self) -> None:
+        emp = self.selected_employee
+        if emp:
+            self.clipboard_clear()
+            self.clipboard_append(emp.full_name)
+            self.on_message(f"ФИО «{emp.full_name}» скопировано в буфер")
+
+    def _copy_selected_position(self) -> None:
+        emp = self.selected_employee
+        if emp and emp.position:
+            self.clipboard_clear()
+            self.clipboard_append(emp.position)
+            self.on_message(f"Должность «{emp.position}» скопирована в буфер")
+
+    def focus_search(self) -> None:
+        if hasattr(self, "search_entry"):
+            self.search_entry.focus_set()
+            self.search_entry.select_range(0, "end")
+
+    def clear_search(self) -> None:
+        if hasattr(self, "search_var"):
+            self.search_var.set("")
 
     def _update_selection_actions(self, _event=None):
         """Включает команды только для выбранного сотрудника."""
         state = "normal" if self.tree.selection() else "disabled"
         for button in self.selection_buttons:
             button.configure(state=state)
-        for index in (0, 1, 3):
+        for index in (0, 1, 3, 4, 6):
             self.context_menu.entryconfigure(index, state=state)
 
     def _show_context_menu(self, event: tk.Event) -> None:
@@ -381,9 +407,12 @@ class EmployeesView(ttk.Frame):
     def show_create_dialog(self) -> None:
         """Открывает диалог добавления нового сотрудника."""
         def on_save(emp: Employee) -> None:
-            self.app.employees.save_employee(emp)
-            self.refresh()
-            self.on_message(f"Сотрудник {emp.full_name} успешно добавлен")
+            try:
+                self.app.employees.save_employee(emp)
+                self.refresh()
+                self.on_message(f"Сотрудник {emp.full_name} успешно добавлен")
+            except Exception as exc:
+                messagebox.showerror("Ошибка сохранения", str(exc), parent=self)
 
         EmployeeDialog(self, employee=None, on_save=on_save)
 
@@ -395,9 +424,12 @@ class EmployeesView(ttk.Frame):
             return
 
         def on_save(updated_emp: Employee) -> None:
-            self.app.employees.save_employee(updated_emp)
-            self.refresh()
-            self.on_message(f"Данные сотрудника {updated_emp.full_name} обновлены")
+            try:
+                self.app.employees.save_employee(updated_emp)
+                self.refresh()
+                self.on_message(f"Данные сотрудника {updated_emp.full_name} обновлены")
+            except Exception as exc:
+                messagebox.showerror("Ошибка сохранения", str(exc), parent=self)
 
         EmployeeDialog(self, employee=emp, on_save=on_save)
 
@@ -417,9 +449,12 @@ class EmployeesView(ttk.Frame):
             return
 
         if emp.id is not None:
-            self.app.employees.delete_employee(emp.id)
-            self.refresh()
-            self.on_message(f"Сотрудник {emp.full_name} удален")
+            try:
+                self.app.employees.delete_employee(emp.id)
+                self.refresh()
+                self.on_message(f"Сотрудник {emp.full_name} удален")
+            except Exception as exc:
+                messagebox.showerror("Ошибка удаления", str(exc), parent=self)
 
     def create_request_for_selected(self) -> None:
         """Создает заявку на сертификат для выбранного сотрудника."""

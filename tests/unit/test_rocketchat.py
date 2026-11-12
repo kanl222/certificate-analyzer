@@ -55,3 +55,20 @@ def test_rocketchat_configuration_roundtrip_and_assembly(tmp_path, monkeypatch):
     backends = notification_service.notification_backend(rocketchat_webhook_url=settings.rocketchat_webhook_url).backends
     assert any(isinstance(backend, AppriseNotificationBackend) for backend in backends)
     assert not any(isinstance(backend, AppriseNotificationBackend) for backend in notification_service.notification_backend().backends)
+
+
+def test_rocketchat_test_webhook(monkeypatch):
+    from apprise.plugins import rocketchat
+    from certificate_analyzer.infrastructure.notifications.rocketchat import test_rocketchat_webhook
+
+    response = Mock(status_code=200, content=b'{"success":true}')
+    post = Mock(return_value=response)
+    monkeypatch.setattr(rocketchat.requests, "post", post)
+
+    webhook = "https://chat.example.org/hooks/integration123/token456"
+    test_rocketchat_webhook(webhook, host_info="SERVER-01")
+
+    post.assert_called_once()
+    payload = json.loads(post.call_args.kwargs["data"])
+    assert "SERVER-01" in payload["text"]
+    assert "Тестовое уведомление" in payload["text"]

@@ -1,0 +1,35 @@
+FROM registry.altlinux.org/p10/alt:latest
+
+# Установка утилит сборки RPM и системных библиотек ALT Linux
+RUN apt-get update && apt-get install -y \
+    rpm-build \
+    binutils \
+    git \
+    curl \
+    ca-certificates \
+    fontconfig \
+    libX11 \
+    libXext \
+    libXrender \
+    libXft \
+    libfreetype \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/*
+
+# Установка uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/usr/local/bin" sh
+
+# Изоляция виртуального окружения на нативной ФС контейнера (ext4)
+# для исключения проблем с symlink/hardlink на томах Windows/NTFS
+ENV UV_PROJECT_ENVIRONMENT="/tmp/.venv-linux"
+
+# Создание непривилегированного пользователя для сборки (ALT Linux запрещает rpmbuild от root)
+RUN useradd -m -g rpm -u 1000 builder && \
+    mkdir -p /workspace /tmp/.venv-linux && \
+    chown -R builder:rpm /tmp/.venv-linux
+
+USER builder
+
+WORKDIR /workspace
+
+ENTRYPOINT ["bash", "packaging/linux/build-rpm.sh", "--distro", "alt"]

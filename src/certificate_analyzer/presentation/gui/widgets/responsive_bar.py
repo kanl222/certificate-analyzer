@@ -7,10 +7,11 @@ from tkinter import ttk
 class ResponsiveBar(ttk.Frame):
     """Сохраняет порядок элементов и переносит их без обрезания подписей."""
 
-    def __init__(self, parent, **kwargs):
+    def __init__(self, parent, *, align="left", **kwargs):
         kwargs.setdefault("style", "Panel.TFrame")
         kwargs.setdefault("padding", (8, 6))
         super().__init__(parent, **kwargs)
+        self.align = align
         self._items: list[tuple[tk.Widget, bool]] = []
         self._layout_after = None
         self.bind("<Configure>", self._schedule_layout, add="+")
@@ -40,9 +41,9 @@ class ResponsiveBar(ttk.Frame):
         padding = [self.winfo_pixels(str(value)) for value in self.cget("padding")]
         left = padding[0] if padding else 0
         right = padding[2] if len(padding) > 2 else left
-        available = max(1, self.winfo_width() - left - right - 2)
         top = padding[1] if len(padding) > 1 else left
         bottom = padding[3] if len(padding) > 3 else top
+        available = max(1, self.winfo_width() - left - right)
         rows = [[]]
         used = 0
         for widget, stretch in self._items:
@@ -52,19 +53,26 @@ class ResponsiveBar(ttk.Frame):
                 used = 0
             rows[-1].append((widget, stretch))
             used += width
-        y = top + 1
+        y = top
         for row in rows:
             height = max((widget.winfo_reqheight() for widget, _ in row), default=0)
-            extra = max(0, available - sum(widget.winfo_reqwidth() + 8 for widget, _ in row))
+            row_items_width = sum(widget.winfo_reqwidth() + 8 for widget, _ in row) - 8
+            extra = max(0, available - row_items_width)
             stretch_count = sum(stretch for _, stretch in row)
-            x = left + 1
+            if stretch_count > 0 or self.align == "left":
+                x = left
+            elif self.align == "center":
+                x = left + extra // 2
+            else:
+                x = left + extra
             for widget, stretch in row:
                 width = widget.winfo_reqwidth() + (extra // stretch_count if stretch else 0)
                 widget.place(x=x, y=y + (height - widget.winfo_reqheight()) // 2,
-                             width=min(width, available), height=widget.winfo_reqheight())
+                             width=min(width, available), height=widget.winfo_reqheight(),
+                             bordermode="ignore")
                 x += width + 8
             y += height + 6
-        self.configure(height=y - 6 + bottom + 1)
+        self.configure(height=y - 6 + bottom)
 
 
 def fit_dialog(window, *, width, height):

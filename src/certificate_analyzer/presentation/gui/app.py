@@ -1,12 +1,21 @@
-import sys
-import logging
+"""Запуск графического интерфейса приложения Tkinter."""
 
-WINDOWS_APP_ID = "kanl.CertificateAnalyzer"
-WINDOW_CLASS = "CertificateAnalyzer"
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+import sys
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from certificate_analyzer.bootstrap import ApplicationContainer
+
+WINDOWS_APP_ID: str = "kanl.CertificateAnalyzer"
+WINDOW_CLASS: str = "CertificateAnalyzer"
 
 
 def _enable_windows_identity() -> None:
-    """Separate the GUI from Python's taskbar group before creating windows."""
+    """Отделяет окно GUI в отдельную группу панели задач Windows перед созданием окон."""
     if sys.platform != "win32":
         return
     import ctypes
@@ -33,7 +42,13 @@ def _enable_dpi_awareness() -> None:
         pass
 
 
-def run_as_gui(application, config_path=None):
+def run_as_gui(application: ApplicationContainer, config_path: str | Path | None = None) -> None:
+    """Инициализирует и запускает главный цикл графического интерфейса Tkinter.
+
+    Args:
+        application: Контейнер сервисов приложения.
+        config_path: Необязательный путь к файлу настроек.
+    """
     import tkinter as tk
     from certificate_analyzer.presentation.gui.main_window import CertificateAnalyzerApp
 
@@ -48,13 +63,15 @@ def run_as_gui(application, config_path=None):
     _enable_dpi_awareness()
     _enable_windows_identity()
     root = tk.Tk(className=WINDOW_CLASS)
-    def report_callback_error(error_type, error, traceback):
-        from certificate_analyzer.runtime.ipc import WriterUnavailable, WriteCommandError
+
+    def report_callback_error(error_type: type[BaseException], error: BaseException, traceback: Any) -> None:
+        from certificate_analyzer.runtime.ipc import WriteCommandError, WriterUnavailable
         if isinstance(error, (WriterUnavailable, WriteCommandError)):
             from tkinter import messagebox
             messagebox.showerror("Ошибка фонового процесса", str(error), parent=root)
         else:
             tk.Tk.report_callback_exception(root, error_type, error, traceback)
+
     root.report_callback_exception = report_callback_error
     CertificateAnalyzerApp(root, application, config_path=config_path)
     root.mainloop()

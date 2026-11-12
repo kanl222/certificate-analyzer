@@ -159,15 +159,19 @@ rpmbuild -bb \
     --target "$ARCHITECTURE" \
     "$RPM_SPEC_FILE"
 
-RPM_FILE="$(find "$RPM_TOPDIR/RPMS" -type f -name "*.rpm" | head -n 1)"
+RPM_FILE="$(find "$RPM_TOPDIR/RPMS" -type f -name "*.rpm" ! -name "*-debuginfo*" | head -n 1)"
+if [ -z "$RPM_FILE" ] || [ ! -f "$RPM_FILE" ]; then
+    RPM_FILE="$(find "$RPM_TOPDIR/RPMS" -type f -name "*.rpm" | head -n 1)"
+fi
 if [ -z "$RPM_FILE" ] || [ ! -f "$RPM_FILE" ]; then
     echo "Ошибка: RPM-пакет не был создан в $RPM_TOPDIR/RPMS" >&2
     exit 1
 fi
 
+find "$RPM_TOPDIR/RPMS" -type f -name "*.rpm" -exec cp -f {} "$OUTPUT_DIR/" \;
+
 RPM_FILENAME="$(basename "$RPM_FILE")"
 PACKAGE_PATH="$OUTPUT_DIR/$RPM_FILENAME"
-cp -f "$RPM_FILE" "$PACKAGE_PATH"
 
 echo "==> Проверка метаданных пакета..."
 if command -v rpm >/dev/null 2>&1; then

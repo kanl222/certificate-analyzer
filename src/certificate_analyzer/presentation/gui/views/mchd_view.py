@@ -153,8 +153,8 @@ class MchdView(ttk.Frame):
         ttk.Label(search_group, text="Поиск:", style="Panel.TLabel").pack(side="left", padx=(0, 6))
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self.apply_filters())
-        search_entry = ttk.Entry(search_group, textvariable=self.search_var, width=28)
-        search_entry.pack(side="left", fill="x", expand=True)
+        self.search_entry = ttk.Entry(search_group, textvariable=self.search_var, width=28)
+        self.search_entry.pack(side="left", fill="x", expand=True)
         filter_bar.add(search_group, stretch=True)
 
         status_group = ttk.Frame(filter_bar, style="Status.TFrame")
@@ -1148,3 +1148,12 @@ class MCHDTableWindow:
         if self.window:
             self.window.destroy()
             self.window = None
+
+    def focus_search(self) -> None:
+        if hasattr(self, "search_entry"):
+            self.search_entry.focus_set()
+            self.search_entry.select_range(0, "end")
+
+    def clear_search(self) -> None:
+        if hasattr(self, "search_var"):
+            self.search_var.set("")

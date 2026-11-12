@@ -1,16 +1,21 @@
 """Аддитивные миграции схемы базы данных SQLite."""
 
-import json
+from __future__ import annotations
+
 from contextlib import closing
+from datetime import datetime, timezone
+import json
 from pathlib import Path
 import sqlite3
-from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
-SCHEMA_VERSION = 6
+if TYPE_CHECKING:
+    from sqlalchemy import Engine
+
+SCHEMA_VERSION: int = 6
 
 
-
-def migrate(engine, path):
+def migrate(engine: Engine, path: str | Path) -> None:
     """Выполняет последовательные аддитивные миграции структуры SQLite-базы данных.
 
     Args:

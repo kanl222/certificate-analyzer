@@ -1,6 +1,7 @@
 """Сервис регулярного мониторинга сроков действия сертификатов и целостности хранилища."""
 
 import logging
+import socket
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -51,7 +52,7 @@ class MonitoringService:
         self._notifications = notification_manager
         self._settings = settings
 
-    def run_cycle(self) -> MonitoringResult:
+    def run_cycle(self, *, db_lock=None) -> MonitoringResult:
         """Выполняет один цикл проверки сертификатов.
 
         Проверяет наличие файлов в хранилище, пересчитывает актуальные статусы,
@@ -60,7 +61,14 @@ class MonitoringService:
         Returns:
             MonitoringResult: Объект со статистикой, проверенными записями и ошибками.
         """
-        records = self._certificates.list(CertificateQuery(limit=None))
+        if db_lock:
+            with db_lock:
+                records = self._certificates.list(CertificateQuery(limit=None))
+                counts = self._certificates.statistics() if records else {}
+        else:
+            records = self._certificates.list(CertificateQuery(limit=None))
+            counts = self._certificates.statistics() if records else {}
+
         errors: dict[str, str] = {}
 
         for cert in records:
@@ -71,7 +79,6 @@ class MonitoringService:
                 logger.warning("%s: Файл сертификата отсутствует", key)
 
         report_path: Path | None = None
-        counts: dict[str, int] = {}
 
         if records:
             export_folder = (
@@ -87,13 +94,16 @@ class MonitoringService:
             except Exception as exc:
                 logger.error("Ошибка при сохранении отчёта мониторинга: %s", exc)
 
-            counts = self._certificates.statistics()
+            if not counts:
+                counts = self._certificates.statistics()
             if self._notifications is not None:
                 try:
+                    host_info: str = socket.gethostname()
                     self._notifications.check_and_notify_expired(
                         counts.get("EXPIRED", 0),
                         counts.get("EXPIRING_SOON", 0),
                         counts.get("total", 0),
+                        host_info,
                     )
                 except Exception as exc:
                     logger.error("Ошибка отправки уведомления мониторинга: %s", exc)

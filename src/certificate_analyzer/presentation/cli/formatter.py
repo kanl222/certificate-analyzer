@@ -1,8 +1,10 @@
 """Форматирование и вывод данных командной строки (CLI)."""
 
+from __future__ import annotations
+
 import json
 import sys
-from typing import Any
+from typing import Any, TextIO
 
 
 def format_json(value: Any, indent: int = 2) -> str:
@@ -18,7 +20,7 @@ def format_json(value: Any, indent: int = 2) -> str:
     return json.dumps(value, ensure_ascii=False, indent=indent, default=str)
 
 
-def print_json(value: Any, file=None) -> None:
+def print_json(value: Any, file: TextIO | None = None) -> None:
     """Выводит данные в формате JSON в указанный поток (по умолчанию sys.stdout).
 
     Args:
@@ -29,7 +31,7 @@ def print_json(value: Any, file=None) -> None:
     print(format_json(value), file=target)
 
 
-def print_error(message: str, file=None) -> None:
+def print_error(message: str, file: TextIO | None = None) -> None:
     """Выводит сообщение об ошибке в поток ошибок (по умолчанию sys.stderr).
 
     Args:

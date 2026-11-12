@@ -89,5 +89,6 @@ def test_monitoring_service_with_missing_files(tmp_path):
     assert str(missing_file) in result.errors
     assert str(real_file) not in result.errors
     report_service.export.assert_called_once()
-    notifier.check_and_notify_expired.assert_called_once_with(1, 0, 2)
+    import socket
+    notifier.check_and_notify_expired.assert_called_once_with(1, 0, 2, socket.gethostname())
     assert result.report_path == tmp_path / "reports" / "monitoring.xlsx"

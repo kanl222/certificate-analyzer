@@ -1,4 +1,4 @@
-%{!?pkg_version:%global pkg_version 0.2.5}
+%{!?pkg_version:%global pkg_version 0.2.7}
 %{!?pkg_release:%global pkg_release 1}
 %{!?altlinux:%global altlinux 0}
 
@@ -7,6 +7,10 @@
 AutoReqProv: no
 %global debug_package %{nil}
 %global __strip /bin/true
+%if %{altlinux}
+%set_verify_elf_method no
+%add_debuginfo_skiplist /*
+%endif
 
 Name: certificate-analyzer
 Version: %{pkg_version}

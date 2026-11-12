@@ -36,8 +36,8 @@ class TaskRunner:
             max_workers=1, thread_name_prefix="gui-task-runner"
         )
         self.future: Future[Any] | None = None
-        self.closing = False
-        self.last_operation_id = None
+        self.closing: bool = False
+        self.last_operation_id: str | None = None
 
     def submit(
         self,

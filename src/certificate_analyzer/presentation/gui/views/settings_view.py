@@ -72,8 +72,8 @@ class SettingsDialog(tk.Toplevel):
                 ("export_folder", "Папка отчётов", self.app.settings.export_folder, "directory"),
             ],
             "Уведомления": [
-                ("rocketchat_webhook_url", "Rocket.Chat Incoming Webhook URL", self.app.settings.rocketchat_webhook_url, "secret"),
-                ("notification_urls", "Адреса каналов Apprise (через пробел)", " ".join(self.app.settings.notification_urls), None),
+                ("rocketchat_webhook_url", "Rocket.Chat Incoming Webhook URL", self.app.settings.rocketchat_webhook_url, "rocketchat_test"),
+                ("notification_urls", "Адреса каналов Apprise (через пробел)", " ".join(self.app.settings.notification_urls), "apprise_test"),
             ],
         }
         for title, values in groups.items():
@@ -125,9 +125,76 @@ class SettingsDialog(tk.Toplevel):
         if browse_kind == "days":
             ttk.Spinbox(tab, from_=0, to=3650, increment=1, textvariable=variable, width=10, style="Settings.TSpinbox").grid(row=row * 2 + 1, column=0, sticky="w")
         else:
-            ttk.Entry(tab, textvariable=variable, width=32, style="Settings.TEntry", show="•" if browse_kind == "secret" else "").grid(row=row * 2 + 1, column=0, sticky="ew")
-        if browse_kind and browse_kind not in ("days", "secret"):
+            ttk.Entry(tab, textvariable=variable, width=32, style="Settings.TEntry", show="•" if browse_kind in ("secret", "rocketchat_test") else "").grid(row=row * 2 + 1, column=0, sticky="ew")
+        if browse_kind == "rocketchat_test":
+            btn = ttk.Button(tab, text="Тест связи")
+            btn.configure(command=lambda b=btn: self._test_rocketchat_async(b))
+            btn.grid(row=row * 2 + 1, column=1, padx=(10, 0))
+        elif browse_kind == "apprise_test":
+            btn = ttk.Button(tab, text="Тест каналов")
+            btn.configure(command=lambda b=btn: self._test_apprise_async(b))
+            btn.grid(row=row * 2 + 1, column=1, padx=(10, 0))
+        elif browse_kind and browse_kind not in ("days", "secret", "rocketchat_test", "apprise_test"):
             ttk.Button(tab, text="Обзор…", command=lambda: self._browse(variable, browse_kind)).grid(row=row * 2 + 1, column=1, padx=(10, 0))
+
+    def _test_rocketchat_async(self, button: ttk.Button) -> None:
+        """Асинхронно отправляет тестовое уведомление в Rocket.Chat."""
+        import threading
+        from certificate_analyzer.infrastructure.notifications.message_builder import NotificationMessageBuilder
+        from certificate_analyzer.infrastructure.notifications.rocketchat import test_rocketchat_webhook
+
+        url: str = self.fields.get("rocketchat_webhook_url", tk.StringVar()).get().strip()
+        if not url:
+            messagebox.showwarning("Rocket.Chat", "Сначала укажите URL входящего вебхука Rocket.Chat.", parent=self)
+            return
+
+        button.configure(text="Отправка…", state="disabled")
+        hostname: str = NotificationMessageBuilder.get_hostname()
+
+        def worker():
+            try:
+                test_rocketchat_webhook(url, host_info=hostname)
+                self.after(0, lambda: self._on_test_success(button, "Тест связи", "Rocket.Chat", f"Тестовое сообщение успешно отправлено!\n(Компьютер: {hostname})"))
+            except Exception as exc:
+                err_text = str(exc)
+                self.after(0, lambda msg=err_text: self._on_test_failure(button, "Тест связи", "Rocket.Chat", f"Ошибка отправки:\n{msg}"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _test_apprise_async(self, button: ttk.Button) -> None:
+        """Асинхронно отправляет тестовое уведомление во все каналы Apprise."""
+        import threading
+        from certificate_analyzer.infrastructure.notifications.apprise_backend import AppriseNotificationBackend
+        from certificate_analyzer.infrastructure.notifications.message_builder import NotificationMessageBuilder
+
+        raw: str = self.fields.get("notification_urls", tk.StringVar()).get().strip()
+        urls = raw.split() if raw else []
+        if not urls:
+            messagebox.showwarning("Каналы Apprise", "Укажите хотя бы один URL канала Apprise.", parent=self)
+            return
+
+        button.configure(text="Отправка…", state="disabled")
+        hostname: str = NotificationMessageBuilder.get_hostname()
+
+        def worker():
+            try:
+                backend = AppriseNotificationBackend(urls)
+                msg = NotificationMessageBuilder.test_connection("Apprise", host_info=hostname)
+                backend.send(title=msg.title, message=msg.message, notification_type=msg.notification_type)
+                self.after(0, lambda: self._on_test_success(button, "Тест каналов", "Каналы Apprise", f"Тестовое сообщение успешно доставлено в {len(urls)} канал(ов)!\n(Компьютер: {hostname})"))
+            except Exception as exc:
+                err_text = str(exc)
+                self.after(0, lambda msg=err_text: self._on_test_failure(button, "Тест каналов", "Каналы Apprise", f"Ошибка отправки:\n{msg}"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_test_success(self, button: ttk.Button, reset_text: str, title: str, text: str) -> None:
+        button.configure(text=reset_text, state="normal")
+        messagebox.showinfo(title, text, parent=self)
+
+    def _on_test_failure(self, button: ttk.Button, reset_text: str, title: str, text: str) -> None:
+        button.configure(text=reset_text, state="normal")
+        messagebox.showerror(title, text, parent=self)
 
     def _browse(self, variable, kind):
         if kind == "directory":

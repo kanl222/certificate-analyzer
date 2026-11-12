@@ -262,6 +262,16 @@ class CertificatesView(ttk.Frame):
         )
         self._tree_menu.add_separator()
         self._tree_menu.add_command(
+            label="Скопировать отпечаток SHA-256", command=self._copy_selected_fingerprint
+        )
+        self._tree_menu.add_command(
+            label="Скопировать серийный номер", command=self._copy_selected_serial
+        )
+        self._tree_menu.add_command(
+            label="Скопировать владельца", command=self._copy_selected_subject
+        )
+        self._tree_menu.add_separator()
+        self._tree_menu.add_command(
             label="Удалить из учета", command=self.delete_selected
         )
         self._tree_menu.add_command(
@@ -601,9 +611,12 @@ class CertificatesView(ttk.Frame):
             self._set_detail_actions_enabled(False)
             return
         def save_comment(text):
-            self.app.certificates.update_comment(cert.fingerprint_sha256, text)
-            cert.comment = text
-            self.on_message("Комментарий сохранён")
+            try:
+                self.app.certificates.update_comment(cert.fingerprint_sha256, text)
+                cert.comment = text
+                self.on_message("Комментарий сохранён")
+            except Exception as exc:
+                messagebox.showerror("Ошибка сохранения", str(exc), parent=self)
         self.details.set_comment(cert.comment, save_comment)
         exists = bool(cert.source_path and Path(cert.source_path).is_file())
         self.details.update_details(
@@ -817,6 +830,39 @@ class CertificatesView(ttk.Frame):
             ),
             lambda output: self.on_message(f"Отчёт сохранён: {output}"),
         )
+
+    def _copy_selected_fingerprint(self) -> None:
+        selection = self.tree.selection()
+        cert = self._page.get(selection[0]) if selection else None
+        if cert:
+            self.clipboard_clear()
+            self.clipboard_append(cert.fingerprint_sha256)
+            self.on_message("Отпечаток SHA-256 скопирован в буфер обмена")
+
+    def _copy_selected_serial(self) -> None:
+        selection = self.tree.selection()
+        cert = self._page.get(selection[0]) if selection else None
+        if cert:
+            self.clipboard_clear()
+            self.clipboard_append(cert.serial_number)
+            self.on_message("Серийный номер скопирован в буфер обмена")
+
+    def _copy_selected_subject(self) -> None:
+        selection = self.tree.selection()
+        cert = self._page.get(selection[0]) if selection else None
+        if cert:
+            self.clipboard_clear()
+            self.clipboard_append(cert.subject)
+            self.on_message("Владелец скопирован в буфер обмена")
+
+    def focus_search(self) -> None:
+        if hasattr(self, "search_entry"):
+            self.search_entry.focus_set()
+            self.search_entry.select_range(0, "end")
+
+    def clear_search(self) -> None:
+        if hasattr(self, "search_var"):
+            self.search_var.set("")
 
     def _import_finished(self, result: Any) -> None:
         """Отображает результат выполнения операции импорта сертификатов.
